@@ -1,0 +1,84 @@
+{
+  "name": "control-de-uso",
+  "productName": "Control de uso",
+  "version": "0.0.0",
+  "description": "Límites diarios de tiempo compartidos entre mis dispositivos.",
+  "author": "Jaime Calzada",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "start": "electron .",
+    "e2e": "xvfb-run -a node e2e/run.mjs",
+    "dist": "electron-builder --win nsis --publish never"
+  },
+  "dependencies": {
+    "koffi": "^2.9.0"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "electron": "^39.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-updater": "^6.3.9",
+    "esbuild": "^0.24.0",
+    "puppeteer-core": "^24.0.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  },
+  "build": {
+    "appId": "es.jaimecalzada.controldeuso",
+    "productName": "Control de uso",
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "!node_modules/koffi/src/**",
+      "!node_modules/koffi/vendor/**",
+      "!node_modules/koffi/doc/**",
+      "!node_modules/koffi/build/koffi/darwin_*/**",
+      "!node_modules/koffi/build/koffi/linux_*/**",
+      "!node_modules/koffi/build/koffi/musl_*/**",
+      "!node_modules/koffi/build/koffi/freebsd_*/**",
+      "!node_modules/koffi/build/koffi/openbsd_*/**",
+      "!node_modules/koffi/build/koffi/win32_ia32/**",
+      "!node_modules/koffi/build/koffi/win32_arm64/**"
+    ],
+    "asarUnpack": [
+      "node_modules/koffi/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../extension/dist",
+        "to": "extension"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "artifactName": "ControlDeUso-Setup-${version}.exe"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Jaiches22",
+        "repo": "control-de-uso"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "npmRebuild": false
+  }
+}

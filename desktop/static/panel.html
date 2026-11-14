@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>Control de uso</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { padding: 20px 24px 40px; }
+  main { max-width: 760px; margin: 0 auto; }
+  nav { display: flex; gap: 6px; margin: 0 0 16px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+  nav button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: #062b1f; font-weight: 600; }
+  .chart { width: 100%; height: 240px; display: block; }
+  .chart text { fill: var(--muted); font-size: 11px; }
+  .chart .grid { stroke: var(--line); stroke-width: 1; }
+  .chart .bar { fill: var(--accent); }
+  .chart .hit { fill: transparent; }
+  .chart .hit:hover + .bar, .chart g:hover .bar { fill: #6ee7b7; }
+  .toprow { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+  .toprow:hover { background: var(--card); }
+  .toprow .bar { grid-column: 1 / -1; margin: 0; }
+  #tip { position: fixed; pointer-events: none; background: #000; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; display: none; z-index: 5; }
+  ol { padding-left: 20px; } ol li { margin: 6px 0; }
+  code { background: var(--card); padding: 2px 6px; border-radius: 6px; user-select: all; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Control de uso</h1>
+
+  <form id="login" class="card" hidden>
+    <p class="muted">Inicia sesión con el mismo usuario que en la extensión.</p>
+    <label for="email">Email</label><input id="email" type="email" required autocomplete="username">
+    <label for="password">Contraseña</label><input id="password" type="password" required autocomplete="current-password">
+    <label for="device">Nombre de este dispositivo (el mismo que pusiste en la extensión)</label><input id="device" type="text" required maxlength="40" placeholder="PC o Portátil">
+    <p class="error" id="loginError"></p>
+    <button class="primary" type="submit" id="loginBtn">Entrar</button>
+  </form>
+
+  <div id="app" hidden>
+    <nav>
+      <button data-tab="today" aria-selected="true">Hoy</button>
+      <button data-tab="limits">Límites</button>
+      <button data-tab="stats">Estadísticas</button>
+      <button data-tab="ext">Extensión de Brave</button>
+    </nav>
+
+    <section id="tab-today">
+      <div id="today"></div>
+      <p class="muted" id="fg"></p>
+    </section>
+
+    <section id="tab-limits" hidden>
+      <p class="muted">Bajar un límite o añadir webs y apps se aplica al momento. Subirlo, borrarlo o quitar webs y apps entra en vigor a las 00:00. Un límite recién creado se puede corregir durante 10 minutos.</p>
+      <p class="error" id="error"></p>
+      <div id="list"></div>
+      <h2 id="formTitle">Nuevo límite</h2>
+      <form id="form" class="card">
+        <label for="name">Nombre</label><input id="name" type="text" required maxlength="60" placeholder="Instagram">
+        <label for="minutes">Minutos al día</label><input id="minutes" type="number" required min="0" max="1440" step="1" placeholder="12">
+        <label for="domains">Webs (dominios separados por comas)</label><input id="domains" type="text" placeholder="instagram.com">
+        <label class="check"><input id="shorts" type="checkbox"> YouTube Shorts (solo Shorts; no pongas youtube.com arriba)</label>
+        <label for="processes">Apps de Windows (separadas por comas)</label><input id="processes" type="text" placeholder="spotify.exe">
+        <p><button type="button" id="pickProcess">Elegir de las apps abiertas</button></p>
+        <div id="openApps"></div>
+        <label class="check"><input id="extra" type="checkbox"> Permitir +5 minutos extra (llegará en la fase 4)</label>
+        <p class="muted" id="otherTargets"></p>
+        <div class="row"><button class="primary" type="submit" id="save">Guardar</button><button type="button" id="cancelEdit" hidden>Cancelar edición</button></div>
+      </form>
+    </section>
+
+    <section id="tab-stats" hidden>
+      <div class="row">
+        <div id="buckets">
+          <button data-bucket="day" aria-selected="true">Días</button>
+          <button data-bucket="week">Semanas</button>
+          <button data-bucket="month">Meses</button>
+          <button data-bucket="year">Años</button>
+        </div>
+        <button id="statsAll" hidden>Ver el total</button>
+      </div>
+      <h2 id="statsTitle">Tiempo total</h2>
+      <p class="error" id="statsError"></p>
+      <svg class="chart" id="chart" role="img"></svg>
+      <h2>En qué se va el tiempo</h2>
+      <p class="muted">Pulsa una fila para ver su evolución.</p>
+      <div id="top"></div>
+    </section>
+
+    <section id="tab-ext" hidden>
+      <p>Esta app guarda la extensión de Brave en una carpeta fija y la actualiza sola. Solo hay que cargarla en Brave una vez:</p>
+      <ol>
+        <li>Abre <code>brave://extensions</code> en Brave y activa <strong>Modo de desarrollador</strong>.</li>
+        <li>Si ya tenías «Control de uso» cargada desde otra carpeta, pulsa <strong>Quitar</strong> en esa.</li>
+        <li>Pulsa <strong>Cargar descomprimida</strong> y pega esta ruta: <code id="extDir"></code></li>
+        <li>En la tarjeta de la extensión, <strong>Detalles</strong> → activa <strong>Permitir en ventanas privadas</strong>.</li>
+        <li>Pulsa el icono de la extensión e inicia sesión.</li>
+      </ol>
+      <p><button id="openExt">Abrir la carpeta</button> <span class="muted" id="extVersion"></span></p>
+    </section>
+
+    <p class="muted" id="footer"></p>
+  </div>
+</main>
+<div id="tip"></div>
+<script src="panel.js"></script>
+</body>
+</html>

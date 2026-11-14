@@ -1,4 +1,4 @@
-import { fmtDuration } from './lib/core.ts';
+import { fmtDuration } from '../../shared/core.ts';
 import { $, send } from './lib/ui.ts';
 
 const params = new URLSearchParams(location.search);

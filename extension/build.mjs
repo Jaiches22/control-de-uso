@@ -14,6 +14,7 @@ const version = (process.env.VERSION || '0.0.0').replace(/^v/, '');
 await rm('dist', { recursive: true, force: true });
 await mkdir('dist', { recursive: true });
 await cp('static', 'dist', { recursive: true });
+await cp('../shared/style.css', 'dist/style.css');
 
 const manifest = JSON.parse(await readFile('static/manifest.json', 'utf8'));
 manifest.version = version;

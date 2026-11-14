@@ -1,5 +1,5 @@
 // Utilidades compartidas por las páginas de la extensión (popup, configuración y aviso de bloqueo).
-import type { State } from './core.ts';
+import type { State } from '../../../shared/core.ts';
 
 export interface Status {
   loggedIn: boolean;
@@ -23,10 +23,4 @@ export function $<T extends HTMLElement = HTMLElement>(id: string): T {
   return el as T;
 }
 
-export function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, children: (Node | string)[] = [],
-): HTMLElementTagNameMap[K] {
-  const node = Object.assign(document.createElement(tag), props);
-  node.append(...children);
-  return node;
-}
+export { el } from '../../../shared/limits-ui.ts';

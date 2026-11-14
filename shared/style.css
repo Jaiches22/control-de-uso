@@ -19,3 +19,5 @@ button:disabled { opacity: .5; cursor: default; }
 .bar.low > div { background: var(--warn); }
 .bar.out > div { background: var(--bad); }
 .tag { font-size: 12px; color: var(--warn); }
+button.chip { padding: 4px 10px; border-radius: 999px; font-size: 13px; margin: 3px 0; }
+nav button[aria-selected=true], #buckets button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: #062b1f; font-weight: 600; }

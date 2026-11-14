@@ -1,0 +1,209 @@
+// Prueba de extremo a extremo en local: arranca la app de escritorio contra un Supabase simulado,
+// con una "app en primer plano" falsa que se controla desde un archivo.
+// Uso: SUPABASE_URL=http://localhost:8788 SUPABASE_ANON_KEY=test npm run build && xvfb-run -a node e2e/run.mjs
+import http from 'node:http';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import puppeteer from 'puppeteer-core';
+import electronPath from 'electron';
+
+const PORT = 8788, DEBUG_PORT = 9333;
+const calls = [];
+let limits = [];
+let seq = 0;
+const matches = (t, k) => t.kind === k.kind && (t.value === k.value || (t.kind === 'domain' && k.value.endsWith('.' + t.value)));
+const state = () => ({
+  day: new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date()),
+  server_time: new Date().toISOString(), resets_at: new Date(Date.now() + 3600_000).toISOString(),
+  limits: limits.map((l) => ({ ...l, remaining_seconds: Math.max(l.daily_seconds - l.used_seconds, 0) })),
+});
+const rpc = {
+  get_state: () => state(),
+  add_usage: ({ p_entries }) => {
+    for (const e of p_entries) {
+      const keys = [{ kind: e.kind, value: e.value }, ...(e.also ?? [])];
+      for (const l of limits) if (l.targets.some((t) => keys.some((k) => matches(t, k)))) l.used_seconds += e.seconds;
+    }
+    return state();
+  },
+  upsert_limit: ({ p_name, p_daily_seconds, p_allow_extra, p_targets }) => {
+    limits.push({ id: `l${++seq}`, name: p_name, daily_seconds: p_daily_seconds, used_seconds: 0, allow_extra: p_allow_extra,
+      pending_daily_seconds: null, pending_delete: false, pending_effective: null, targets: p_targets.map((t) => ({ ...t, remove_on: null })) });
+    return state();
+  },
+  get_stats: ({ p_bucket }) => ({
+    bucket: p_bucket, from: '2026-11-01', to: '2026-11-14',
+    series: Array.from({ length: 14 }, (_, i) => ({ start: `2026-11-${String(i + 1).padStart(2, '0')}`, seconds: i * 700 })),
+    top: [{ kind: 'win_process', value: 'juego.exe', seconds: 5000 }, { kind: 'special', value: 'youtube_shorts', seconds: 900 }],
+  }),
+};
+const jwt = (p) => ['{"alg":"HS256","typ":"JWT"}', JSON.stringify(p), 'sig'].map((s) => Buffer.from(s).toString('base64url')).join('.');
+const server = http.createServer((req, res) => {
+  let body = '';
+  req.on('data', (c) => (body += c));
+  req.on('end', () => {
+    const url = new URL(req.url, 'http://x');
+    const json = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
+    if (url.pathname === '/auth/v1/token') {
+      const { email, password } = JSON.parse(body || '{}');
+      if (password !== 'correcta') return json(400, { code: 400, error_code: 'invalid_credentials', msg: 'Invalid login credentials' });
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+      const user = { id: '11111111-1111-1111-1111-111111111111', aud: 'authenticated', role: 'authenticated', email };
+      return json(200, { access_token: jwt({ sub: user.id, exp }), token_type: 'bearer', expires_in: 3600, expires_at: exp, refresh_token: 'r', user });
+    }
+    if (url.pathname.startsWith('/rest/v1/rpc/')) {
+      const name = url.pathname.split('/').pop();
+      const args = JSON.parse(body || '{}');
+      calls.push({ name, args });
+      return rpc[name] ? json(200, rpc[name](args)) : json(404, { message: 'no rpc' });
+    }
+    json(404, {});
+  });
+}).listen(PORT);
+
+const tmp = mkdtempSync(path.join(os.tmpdir(), 'cdu-e2e-'));
+const fgFile = path.join(tmp, 'fg.json');
+const setFg = (exe) => writeFileSync(fgFile, JSON.stringify({ exe, apps: [{ exe: 'juego.exe', title: 'Un juego' }, { exe: 'notas.exe', title: 'Notas' }] }));
+setFg(null);
+const extSrc = path.join(tmp, 'ext-src');
+mkdirSync(extSrc);
+writeFileSync(path.join(extSrc, 'manifest.json'), '{}');
+writeFileSync(path.join(extSrc, 'version.json'), '{"version":"9.9.9"}');
+const localAppData = path.join(tmp, 'local');
+
+const child = spawn(electronPath, ['.', '--no-sandbox', `--remote-debugging-port=${DEBUG_PORT}`], {
+  env: { ...process.env, CDU_FAKE_FOREGROUND: fgFile, CDU_USER_DATA: path.join(tmp, 'data'), CDU_EXTENSION_SRC: extSrc, LOCALAPPDATA: localAppData },
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+let log = '';
+child.stdout.on('data', (d) => (log += d));
+child.stderr.on('data', (d) => (log += d));
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function connect() {
+  for (let i = 0; i < 40; i++) {
+    try { return await puppeteer.connect({ browserURL: `http://127.0.0.1:${DEBUG_PORT}`, defaultViewport: null }); } catch { await sleep(500); }
+  }
+  throw new Error('Electron no arrancó');
+}
+const pageNamed = async (browser, file, timeout = 15000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    const p = (await browser.pages()).find((x) => x.url().endsWith(file));
+    if (p) return p;
+    await sleep(200);
+  }
+  throw new Error(`no aparece ${file}`);
+};
+
+const shot = (page, name) => Promise.race([page.screenshot({ path: path.join(tmp, name) }), sleep(8000)]);
+let failed = false;
+let browser;
+try {
+  browser = await connect();
+  const panel = await pageNamed(browser, 'panel.html');
+
+  // 1. Login.
+  await panel.waitForSelector('#login:not([hidden])');
+  await panel.type('#email', 'yo@example.com');
+  await panel.type('#password', 'mala');
+  await panel.type('#device', 'PC');
+  await panel.click('#loginBtn');
+  await panel.waitForFunction(() => document.querySelector('#loginError').textContent.includes('incorrectos'));
+  await panel.$eval('#password', (e) => (e.value = ''));
+  await panel.type('#password', 'correcta');
+  await panel.click('#loginBtn');
+  await panel.waitForSelector('#app:not([hidden])');
+  console.log('ok  login');
+
+  // 2. La extensión se copió a su carpeta fija.
+  const extDir = path.join(localAppData, 'ControlDeUso', 'extension');
+  assert.equal(JSON.parse(readFileSync(path.join(extDir, 'version.json'), 'utf8')).version, '9.9.9');
+  assert.ok(existsSync(path.join(extDir, 'manifest.json')));
+  console.log('ok  carpeta de la extensión');
+
+  // 3. Crear un límite desde el formulario eligiendo una app abierta; y avisos de validación.
+  await panel.click('nav button[data-tab=limits]');
+  await panel.type('#name', 'Juego');
+  await panel.type('#minutes', '1');
+  await panel.type('#domains', 'youtube.com');
+  await panel.click('#shorts');
+  await panel.click('#save');
+  await panel.waitForFunction(() => document.querySelector('#error').textContent.includes('YouTube entero'));
+  await panel.$eval('#domains', (e) => (e.value = ''));
+  await panel.click('#shorts');
+  await panel.click('#pickProcess');
+  await panel.waitForSelector('#openApps button.chip');
+  await panel.click('#openApps button.chip');
+  await panel.click('#save');
+  await panel.waitForFunction(() => document.querySelector('#list').textContent.includes('app Windows juego.exe'));
+  assert.deepEqual(limits[0].targets.map((t) => `${t.kind}:${t.value}`), ['win_process:juego.exe']);
+  limits[0].daily_seconds = 8; // para no esperar un minuto
+  await panel.evaluate(() => cdu.send({ type: 'refresh' }));
+  console.log('ok  crear límite con app elegida de la lista');
+
+  // 4. App sin límite: se cuenta para estadísticas y no se bloquea. Brave no se cuenta.
+  setFg('notas.exe');
+  await sleep(3200);
+  setFg('brave.exe');
+  await sleep(2200);
+
+  // 5. App con límite de 8 s: aparece el aviso a pantalla completa.
+  setFg('juego.exe');
+  const t0 = Date.now();
+  const overlay = await pageNamed(browser, 'overlay.html', 20000);
+  await overlay.waitForFunction(() => document.querySelector('#title').textContent.includes('Se acabó Juego'), { timeout: 20000 });
+  const took = (Date.now() - t0) / 1000;
+  assert.ok(took >= 7 && took <= 12, `bloqueó a los ${took}s`);
+  await sleep(1500);
+  const juego = limits[0];
+  assert.ok(juego.used_seconds >= 8 && juego.used_seconds <= 9, `usado ${juego.used_seconds}`);
+  const visible = () => overlay.evaluate(() => document.visibilityState);
+  assert.equal(await visible(), 'visible');
+  console.log(`ok  aviso de bloqueo a los ${took.toFixed(1)} s, contados ${juego.used_seconds} s`);
+
+  // 6. Al cambiar a otra app el aviso se quita; al volver, reaparece.
+  setFg('notas.exe');
+  await sleep(1800);
+  assert.equal(await visible(), 'hidden');
+  setFg('juego.exe');
+  await sleep(1800);
+  assert.equal(await visible(), 'visible');
+  await shot(overlay, 'overlay.png');
+  setFg(null);
+  console.log('ok  el aviso sigue a la app bloqueada');
+
+  // 7. Uso enviado: notas.exe sí, brave.exe no.
+  await panel.evaluate(() => cdu.send({ type: 'refresh' }));
+  const entries = calls.filter((c) => c.name === 'add_usage').flatMap((c) => c.args.p_entries);
+  const total = (v) => entries.filter((e) => e.value === v).reduce((a, e) => a + e.seconds, 0);
+  assert.ok(total('notas.exe') >= 3 && total('notas.exe') <= 7, `notas ${total('notas.exe')}`);
+  assert.equal(total('brave.exe'), 0);
+  assert.ok(entries.every((e) => e.kind === 'win_process'));
+  console.log(`ok  estadísticas: notas.exe ${total('notas.exe')} s, brave.exe 0 s`);
+
+  // 8. Estadísticas: gráfica y lista.
+  await panel.click('nav button[data-tab=stats]');
+  await panel.waitForFunction(() => document.querySelectorAll('#chart path.bar').length === 13);
+  await panel.waitForFunction(() => document.querySelector('#top').textContent.includes('YouTube Shorts'));
+  await panel.click('#buckets button[data-bucket=month]');
+  await panel.waitForFunction(() => true);
+  await sleep(500);
+  await shot(panel, 'stats.png');
+  await panel.click('nav button[data-tab=limits]');
+  await shot(panel, 'limits.png');
+  console.log('ok  estadísticas', tmp);
+} catch (e) {
+  failed = true;
+  console.error('FALLO', e);
+  console.error(JSON.stringify(limits), calls.map((c) => c.name).join(','));
+} finally {
+  if (log.trim()) console.error('--- salida de Electron ---\n' + log.split('\n').filter((l) => !/dbus|gpu|GL|Vulkan|viz/i.test(l)).slice(-15).join('\n'));
+  await browser?.disconnect();
+  child.kill('SIGKILL');
+  server.close();
+}
+process.exit(failed ? 1 : 0);

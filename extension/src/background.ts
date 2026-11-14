@@ -3,7 +3,7 @@ import { createClient, type RealtimeChannel } from '@supabase/supabase-js';
 import {
   addPending, creditedSeconds, effectiveRemaining, fmtDuration, keysFor, limitMatches, madridDay, sameKeys,
   type Key, type Limit, type Pending, type State,
-} from './lib/core.ts';
+} from '../../shared/core.ts';
 
 declare const __SUPABASE_URL__: string;
 declare const __SUPABASE_KEY__: string;
@@ -137,7 +137,8 @@ async function tickInner(opts: TickOptions): Promise<void> {
   const due = opts.refresh || stale
     || (hasPending && (opts.flush || now - lastFlushAt > FLUSH_EVERY_MS))
     || (opts.flush && now - lastFlushAt > IDLE_REFRESH_MS);
-  if (due && now - lastAttemptAt > RETRY_GAP_MS) {
+  // El margen entre reintentos solo frena los automáticos; lo pedido expresamente se hace siempre.
+  if (due && (opts.flush || opts.refresh || now - lastAttemptAt > RETRY_GAP_MS)) {
     lastAttemptAt = now;
     try {
       state = hasPending
@@ -176,7 +177,7 @@ async function tickInner(opts: TickOptions): Promise<void> {
       await blockTabs(exhausted);
       keys = null;
       // Avisar ya al servidor para que el resto de dispositivos bloqueen también.
-      if (Object.keys(pending).length > 0) setTimeout(() => void tick({ flush: true }), RETRY_GAP_MS + 100);
+      if (Object.keys(pending).length > 0) setTimeout(() => void tick({ flush: true }), 0);
     }
   }
 
@@ -211,7 +212,32 @@ chrome.tabs.onUpdated.addListener((_id, info) => {
 chrome.windows.onFocusChanged.addListener(() => void tick());
 chrome.idle.onStateChanged.addListener(() => void tick());
 chrome.webNavigation.onHistoryStateUpdated.addListener((d) => { if (d.frameId === 0) void tick(); });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'pulso') void tick({ flush: true }); });
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name !== 'pulso') return;
+  void tick({ flush: true });
+  void reloadIfUpdated();
+});
+
+/**
+ * La app de Windows actualiza los archivos de la carpeta de la extensión. Si la versión en disco
+ * ya no coincide con la que está cargada, la extensión se recarga sola para usar la nueva.
+ */
+async function reloadIfUpdated(): Promise<void> {
+  try {
+    const res = await fetch(chrome.runtime.getURL('version.json'), { cache: 'no-store' });
+    const onDisk = ((await res.json()) as { version?: string }).version;
+    const loaded = chrome.runtime.getManifest().version;
+    if (!onDisk || onDisk === loaded) return;
+    // Un solo intento por versión, para no entrar en bucle si algo no cuadra.
+    const { reloadTried } = await chrome.storage.local.get('reloadTried');
+    if (reloadTried === onDisk) return;
+    await chrome.storage.local.set({ reloadTried: onDisk });
+    await tick({ flush: true });
+    chrome.runtime.reload();
+  } catch {
+    // Sin archivo de versión o a medio copiar: se reintenta en el siguiente pulso.
+  }
+}
 
 async function setup(): Promise<void> {
   chrome.idle.setDetectionInterval(IDLE_SECONDS);

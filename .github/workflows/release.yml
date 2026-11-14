@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
 jobs:
   extension:
     runs-on: ubuntu-latest
@@ -20,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Leer versión
-        run: echo "TAG=v$(tr -d '[:space:]' < ../VERSION)" >> "$GITHUB_ENV"
+        run: echo "VERSION=$(tr -d '[:space:]' < ../VERSION)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -29,18 +33,64 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - name: Compilar
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          VERSION: ${{ env.TAG }}
-        run: npm run build
+      - run: npm run build
       - name: Empaquetar
-        run: cd dist && zip -r "../control-de-uso-extension-${{ env.TAG }}.zip" .
+        run: cd dist && zip -r "../control-de-uso-extension-v$VERSION.zip" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: extension/control-de-uso-extension-v*.zip
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Leer versión
+        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compilar la extensión (va dentro del instalador)
+        working-directory: extension
+        run: npm ci && npm run build
+      - name: Compilar la app
+        working-directory: desktop
+        run: |
+          npm ci
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npm run typecheck
+          npm run build
+      - name: Crear el instalador
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win nsis --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.exe.blockmap
+            desktop/release/latest.yml
+          if-no-files-found: error
+
+  publicar:
+    needs: [extension, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
       - name: Publicar en Releases
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "${{ env.TAG }}"
-          "control-de-uso-extension-${{ env.TAG }}.zip"
-          --target "${{ github.sha }}" --title "${{ env.TAG }}" --generate-notes
+        run: |
+          TAG="v$(tr -d '[:space:]' < VERSION)"
+          ls -la out
+          gh release create "$TAG" out/* --target "$GITHUB_SHA" --title "$TAG" --generate-notes

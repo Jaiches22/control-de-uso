@@ -1,4 +1,4 @@
-import { fmtDuration } from './lib/core.ts';
+import { fmtDuration } from '../../shared/core.ts';
 import { $, el, send, type Status } from './lib/ui.ts';
 
 function render(st: Status): void {

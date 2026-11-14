@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   addPending, creditedSeconds, effectiveRemaining, keysFor, limitMatches, madridDay, normalizeDomain,
   type Limit, type Pending, type State,
-} from '../src/lib/core.ts';
+} from '../../shared/core.ts';
+import { normalizeProcess } from '../../shared/limits-ui.ts';
 
 const limit = (name: string, daily: number, remaining: number, targets: [string, string][]): Limit => ({
   id: name, name, daily_seconds: daily, used_seconds: daily - remaining, remaining_seconds: remaining,
@@ -77,4 +78,11 @@ test('madridDay cambia a medianoche de Madrid', () => {
   assert.equal(madridDay(new Date('2026-11-14T23:00:00Z')), '2026-11-15');
   assert.equal(madridDay(new Date('2026-07-01T21:59:59Z')), '2026-07-01');
   assert.equal(madridDay(new Date('2026-07-01T22:00:00Z')), '2026-07-02');
+});
+
+test('normalizeProcess', () => {
+  assert.equal(normalizeProcess(' Spotify.EXE '), 'spotify.exe');
+  assert.equal(normalizeProcess('C:\\Program Files\\Steam\\steam.exe'), 'steam.exe');
+  assert.equal(normalizeProcess('discord'), 'discord.exe');
+  assert.equal(normalizeProcess('   '), null);
 });

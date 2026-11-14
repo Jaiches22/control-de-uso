@@ -75,7 +75,7 @@ No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
 - Autenticación con email y contraseña. Un único usuario; el registro de usuarios nuevos queda desactivado una vez creado.
 - RLS en todas las tablas: cada fila pertenece a un usuario y solo él puede leerla o escribirla.
 - Las tablas nuevas no se exponen automáticamente a la API; los permisos se conceden de forma explícita en las migraciones.
-- Contador atómico mediante función RPC (`add_usage`), que suma segundos y devuelve el estado completo. Resto de funciones: `get_state`, `upsert_limit`, `delete_limit`, `cancel_pending`.
+- Contador atómico mediante función RPC (`add_usage`), que suma segundos y devuelve el estado completo. Resto de funciones: `get_state`, `upsert_limit`, `delete_limit`, `cancel_pending` y `get_stats` (estadísticas agregadas por día, semana, mes o año).
 - Tablas: `limits`, `limit_targets` (identificadores de cada límite), `usage` (todo el uso, para estadísticas) y `limit_usage` (contador diario de cada límite).
 - Realtime para propagar al momento bloqueos, cambios de límites, modo foco y uso del +5.
 - Migraciones SQL versionadas en `supabase/migrations/`.
@@ -88,9 +88,16 @@ No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
 - No tiene botón de cerrar sesión.
 
 ### 6.3 App de Windows
-- App de bandeja en C# / .NET 10 (LTS), con panel de configuración y estadísticas.
-- Instalador `.exe` (sin firmar: SmartScreen avisa la primera vez).
-- Instala y actualiza la carpeta de la extensión.
+- App de bandeja hecha con Electron y TypeScript (carpeta `desktop/`). Comparte con la extensión la lógica de límites y la pantalla de configuración (carpeta `shared/`).
+- Panel con cuatro pestañas: Hoy, Límites, Estadísticas y Extensión de Brave.
+- Mira la app en primer plano una vez por segundo (llamadas a `user32`/`kernel32` con koffi) y usa el tiempo de inactividad del sistema.
+- No se cuentan Brave (lo cuenta la extensión) ni piezas del propio Windows (pantalla de bloqueo, menú Inicio, búsqueda).
+- El aviso de bloqueo es una ventana a pantalla completa, siempre encima y que no roba el foco: se muestra mientras la app bloqueada está en primer plano y se quita al cambiar de ventana.
+- Arranca con Windows, oculta en la bandeja. No tiene opción de salir.
+- Instalador `.exe` por usuario, sin permisos de administrador (sin firmar: SmartScreen avisa la primera vez).
+- Se actualiza sola desde GitHub Releases (electron-updater).
+- Guarda la extensión en `%LOCALAPPDATA%\ControlDeUso\extension` y la actualiza con cada versión de la app; la extensión detecta el cambio y se recarga sola. La extensión tiene un identificador fijo (`key` en el manifiesto), así que no pierde la sesión al actualizarse.
+- Limitación: las apps de la Microsoft Store pueden aparecer con el nombre de su contenedor (`applicationframehost.exe`).
 
 ### 6.4 App de Android
 - Kotlin + Jetpack Compose.
@@ -129,6 +136,8 @@ Cada fase termina con algo instalable y con instrucciones paso a paso.
 | 2026-11-14 | Subir o borrar un límite entra en vigor a las 00:00; bajarlo, al momento. |
 | 2026-11-14 | Un límite = un servicio con varios identificadores; sin categorías. |
 | 2026-11-14 | No se cubre el navegador del móvil. |
-| 2026-11-14 | .NET 10 en lugar de .NET 8; pulsos de la extensión cada 30 s; login con email y contraseña. |
+| 2026-11-14 | Pulsos de la extensión cada 30 s; login con email y contraseña. |
+| 2026-11-14 | App de Windows con Electron en lugar de C#/.NET: comparte código ya probado con la extensión, se puede probar automáticamente antes de publicar y trae actualización automática. A cambio ocupa más (instalador de unos 90 MB y más memoria). |
+| 2026-11-14 | Un límite no puede llevar youtube.com y Shorts a la vez: youtube.com ya incluye Shorts. |
 | 2026-11-14 | Margen de 10 minutos para corregir un límite recién creado. Un vídeo con sonido sigue contando aunque no se toque teclado ni ratón. |
 | 2026-11-14 | Proyecto de Supabase en París (eu-west-3), con RLS automático y sin exposición automática de tablas. |

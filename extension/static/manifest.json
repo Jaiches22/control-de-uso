@@ -5,10 +5,32 @@
   "version": "0.0.0",
   "minimum_chrome_version": "120",
   "incognito": "split",
-  "permissions": ["tabs", "storage", "alarms", "idle", "notifications", "webNavigation"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "background.js", "type": "module" },
-  "action": { "default_popup": "popup.html", "default_title": "Control de uso" },
-  "options_ui": { "page": "options.html", "open_in_tab": true },
-  "icons": { "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  "permissions": [
+    "tabs",
+    "storage",
+    "alarms",
+    "idle",
+    "notifications",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Control de uso"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA9YgaoqTytjiNZT3UloNxiFj5liukqLjxEpvxcAQEIrq2fLHYbK1P4a7y0YbKWtX5hNg37IiQVgGXbnyj0hEAuE6v8fPPxhkPXmKJ4wEMnxY2a6bLr/4VPjneUlAJ3duEUhdCXSCpbicN45CvN3vryZJxcQtpTZ+o+0lCu3U5JGfxno1AqScu+phxpu0Q5zVKpekHreZSQycmgCo4NSowI6rsmEbnVHXJWKmbxhMgWfPn7pX0uRBgJwcsiNk3qmHx9mNGWhnmYsrg+Kl1Y+aDa0oyg7dtztqqaWHEzoCm2iFzpt+wHkoUeQUR1pHh6RQh0Xom4DHBs6kk/EFjc+KGeQIDAQAB"
 }
