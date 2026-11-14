@@ -1,9 +1,12 @@
 name: Publicar versión
 
-# Se lanza al subir una etiqueta vX.Y.Z: compila, prueba y publica los instalables en Releases.
+# Se lanza al cambiar el archivo VERSION en main: compila, prueba y publica los instalables en Releases
+# con la etiqueta vX.Y.Z correspondiente.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,6 +19,8 @@ jobs:
         working-directory: extension
     steps:
       - uses: actions/checkout@v4
+      - name: Leer versión
+        run: echo "TAG=v$(tr -d '[:space:]' < ../VERSION)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -28,14 +33,14 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.TAG }}
         run: npm run build
       - name: Empaquetar
-        run: cd dist && zip -r "../control-de-uso-extension-${{ github.ref_name }}.zip" .
+        run: cd dist && zip -r "../control-de-uso-extension-${{ env.TAG }}.zip" .
       - name: Publicar en Releases
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "${{ github.ref_name }}"
-          "control-de-uso-extension-${{ github.ref_name }}.zip"
-          --title "${{ github.ref_name }}" --generate-notes
+          gh release create "${{ env.TAG }}"
+          "control-de-uso-extension-${{ env.TAG }}.zip"
+          --target "${{ github.sha }}" --title "${{ env.TAG }}" --generate-notes

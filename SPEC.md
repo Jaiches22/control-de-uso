@@ -102,7 +102,7 @@ No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
 ### 6.5 Compilación y publicación
 - GitHub Actions compila el instalador de Windows, el APK y el zip de la extensión y los publica en Releases.
 - Secretos del repositorio: `SUPABASE_URL` y `SUPABASE_ANON_KEY` (se inyectan al compilar), más los de la firma de Android. `SUPABASE_ANON_KEY` contiene la clave *publishable* del proyecto, que es el nombre actual de la clave anon.
-- Se publica al subir una etiqueta `vX.Y.Z`.
+- Se publica una versión al cambiar el archivo `VERSION` en `main`; el workflow crea la etiqueta `vX.Y.Z` y la release.
 - El repositorio es público: **nunca se suben claves ni contraseñas**. La contraseña de la base de datos solo la tiene el dueño y no se usa en ningún sitio del proyecto.
 - La clave anon acaba dentro de los instaladores públicos. Es una clave pensada para ser pública: la privacidad de los datos la garantizan RLS y el registro cerrado.
 
