@@ -135,7 +135,7 @@ try {
   await panel.waitForFunction(() => document.querySelector('#error').textContent.includes('YouTube entero'));
   await panel.$eval('#domains', (e) => (e.value = ''));
   await panel.click('#shorts');
-  await panel.click('#pickProcess');
+  await panel.click('#pickApp');
   await panel.waitForSelector('#openApps button.chip');
   await panel.click('#openApps button.chip');
   await panel.click('#save');

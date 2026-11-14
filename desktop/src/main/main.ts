@@ -130,6 +130,7 @@ async function status(sb: SupabaseClient) {
     version: app.getVersion(),
     foreground: engine.lastForeground,
     platformError,
+    platform: 'windows' as const,
     extension: { dir: extensionDir(), version: versionIn(extensionDir()) },
   };
 }
@@ -155,7 +156,7 @@ function registerIpc(sb: SupabaseClient): void {
         return status(sb);
       case 'deleteLimit': await engine.call('delete_limit', { p_id: msg.id }); return status(sb);
       case 'cancelPending': await engine.call('cancel_pending', { p_id: msg.id }); return status(sb);
-      case 'openApps': return platform.listOpenApps();
+      case 'listApps': return (await platform.listOpenApps()).map((a) => ({ id: a.exe, label: a.exe }));
       case 'stats': {
         const { data, error } = await sb.rpc('get_stats', {
           p_bucket: msg.bucket, p_count: msg.count, p_kind: msg.kind ?? null, p_value: msg.value ?? null,

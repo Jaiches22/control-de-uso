@@ -3,12 +3,15 @@
 import { fmtDuration, normalizeDomain, SHORTS, type Key, type Limit, type State } from './core.ts';
 
 export interface LimitsStatus { state: State | null; remaining: Record<string, number> }
-export interface OpenApp { exe: string; title: string }
+/** Una app elegible: id es lo que se guarda (proceso .exe o paquete Android) y label lo que se enseña. */
+export interface AppChoice { id: string; label: string }
 export interface LimitsOptions<S extends LimitsStatus> {
   send: (msg: Record<string, unknown>) => Promise<S>;
   onStatus?: (st: S) => void;
-  /** Solo en Windows: apps abiertas ahora mismo, para elegirlas de una lista. */
-  listOpenApps?: () => Promise<OpenApp[]>;
+  /** Qué tipo de app se edita en esta pantalla (campo #apps). Sin él, las apps solo se conservan. */
+  appKind?: 'win_process' | 'android_package';
+  /** Apps para elegir de una lista: las abiertas (Windows) o las instaladas (Android). */
+  listApps?: () => Promise<AppChoice[]>;
 }
 
 const byId = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T | null;
@@ -36,6 +39,11 @@ export function normalizeProcess(input: string): string | null {
   return /^[^<>:"|?*\s][^<>:"|?*]*\.exe$/.test(s) ? s : null;
 }
 
+export function normalizePackage(input: string): string | null {
+  const s = input.trim();
+  return /^[A-Za-z][\w]*(\.[A-Za-z][\w]*)+$/.test(s) ? s : null;
+}
+
 export function describeTarget(t: Key): string {
   if (isShorts(t)) return 'YouTube Shorts';
   if (t.kind === 'android_package') return `app Android ${t.value}`;
@@ -45,7 +53,9 @@ export function describeTarget(t: Key): string {
 
 export function initLimitsUI<S extends LimitsStatus>(opts: LimitsOptions<S>): { refresh: () => Promise<void>; render: (st: S) => void } {
   let editing: Limit | null = null;
-  const processesInput = byId<HTMLInputElement>('processes');
+  const appKind = opts.appKind ?? null;
+  const appsInput = appKind ? byId<HTMLInputElement>('apps') : null;
+  const otherAppKind = appKind === 'win_process' ? 'android_package' : appKind === 'android_package' ? 'win_process' : null;
   const showError = (e: unknown) => { need('error').textContent = e instanceof Error ? e.message : String(e); };
 
   function render(st: S): void {
@@ -95,8 +105,8 @@ export function initLimitsUI<S extends LimitsStatus>(opts: LimitsOptions<S>): { 
     need<HTMLInputElement>('domains').value = values('domain').join(', ');
     need<HTMLInputElement>('shorts').checked = active.some(isShorts);
     need<HTMLInputElement>('extra').checked = l?.allow_extra ?? false;
-    if (processesInput) processesInput.value = values('win_process').join(', ');
-    const kept = [...values('android_package'), ...(processesInput ? [] : values('win_process'))];
+    if (appsInput && appKind) appsInput.value = values(appKind).join(', ');
+    const kept = appsInput && otherAppKind ? values(otherAppKind) : [...values('android_package'), ...values('win_process')];
     need('otherTargets').textContent = kept.length ? `También incluye apps (se conservan): ${kept.join(', ')}` : '';
     if (l) need('form').scrollIntoView({ behavior: 'smooth' });
   }
@@ -127,18 +137,27 @@ export function initLimitsUI<S extends LimitsStatus>(opts: LimitsOptions<S>): { 
     if (shorts && targets.some((t) => isYouTube(t.value))) {
       return showError('Has puesto youtube.com y además Shorts: así se limita YouTube entero. Para limitar solo Shorts, borra youtube.com de «Webs».');
     }
+    if (shorts && appsInput && appKind === 'android_package'
+        && appsInput.value.split(',').some((x) => x.trim() === 'com.google.android.youtube')) {
+      return showError('Has puesto la app de YouTube y además Shorts: así se limita YouTube entero. Para limitar solo Shorts, quita la app de YouTube.');
+    }
     if (shorts) add(SHORTS);
-    if (processesInput) {
-      for (const raw of split(processesInput.value)) {
-        const p = normalizeProcess(raw);
-        if (!p) return showError(`«${raw}» no parece un programa. Ejemplo: spotify.exe`);
-        add({ kind: 'win_process', value: p });
+    if (appsInput && appKind) {
+      for (const raw of split(appsInput.value)) {
+        const p = appKind === 'win_process' ? normalizeProcess(raw) : normalizePackage(raw);
+        if (!p) {
+          return showError(appKind === 'win_process'
+            ? `«${raw}» no parece un programa. Ejemplo: spotify.exe`
+            : `«${raw}» no parece una app. Elígela de la lista.`);
+        }
+        add({ kind: appKind, value: p });
       }
     }
     // Lo que esta pantalla no sabe editar se conserva tal cual.
     for (const t of editing?.targets ?? []) {
       if (t.remove_on) continue;
-      if (t.kind === 'android_package' || (t.kind === 'win_process' && !processesInput)) add({ kind: t.kind, value: t.value });
+      const editable = t.kind === 'domain' || t.kind === 'special' || (appsInput && t.kind === appKind);
+      if (!editable) add({ kind: t.kind, value: t.value });
     }
     if (targets.length === 0) return showError('Añade al menos una web o una app, o marca YouTube Shorts.');
     const minutes = Number(need<HTMLInputElement>('minutes').value);
@@ -157,22 +176,22 @@ export function initLimitsUI<S extends LimitsStatus>(opts: LimitsOptions<S>): { 
 
   need('cancelEdit').addEventListener('click', () => startEdit(null));
 
-  // Elegir apps de Windows de entre las abiertas.
-  const pick = byId<HTMLButtonElement>('pickProcess');
+  // Elegir apps de una lista.
+  const pick = byId<HTMLButtonElement>('pickApp');
   const openApps = byId('openApps');
-  if (pick && openApps && processesInput && opts.listOpenApps) {
+  if (pick && openApps && appsInput && opts.listApps) {
     pick.addEventListener('click', async () => {
-      openApps.replaceChildren(el('span', { className: 'muted', textContent: 'Buscando apps abiertas…' }));
+      openApps.replaceChildren(el('span', { className: 'muted', textContent: 'Buscando apps…' }));
       try {
-        const apps = await opts.listOpenApps!();
+        const apps = await opts.listApps!();
         openApps.replaceChildren();
-        if (apps.length === 0) openApps.append(el('span', { className: 'muted', textContent: 'No he encontrado apps abiertas.' }));
+        if (apps.length === 0) openApps.append(el('span', { className: 'muted', textContent: 'No he encontrado apps.' }));
         for (const app of apps) {
-          const chip = el('button', { type: 'button', className: 'chip', textContent: app.exe, title: app.title });
+          const chip = el('button', { type: 'button', className: 'chip', textContent: app.label, title: app.id });
           chip.addEventListener('click', () => {
-            const current = processesInput.value.split(',').map((x) => x.trim()).filter(Boolean);
-            if (!current.includes(app.exe)) current.push(app.exe);
-            processesInput.value = current.join(', ');
+            const current = appsInput.value.split(',').map((x) => x.trim()).filter(Boolean);
+            if (!current.includes(app.id)) current.push(app.id);
+            appsInput.value = current.join(', ');
           });
           openApps.append(chip, ' ');
         }

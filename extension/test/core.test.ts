@@ -4,7 +4,7 @@ import {
   addPending, creditedSeconds, effectiveRemaining, keysFor, limitMatches, madridDay, normalizeDomain,
   type Limit, type Pending, type State,
 } from '../../shared/core.ts';
-import { normalizeProcess } from '../../shared/limits-ui.ts';
+import { normalizePackage, normalizeProcess } from '../../shared/limits-ui.ts';
 
 const limit = (name: string, daily: number, remaining: number, targets: [string, string][]): Limit => ({
   id: name, name, daily_seconds: daily, used_seconds: daily - remaining, remaining_seconds: remaining,
@@ -85,4 +85,6 @@ test('normalizeProcess', () => {
   assert.equal(normalizeProcess('C:\\Program Files\\Steam\\steam.exe'), 'steam.exe');
   assert.equal(normalizeProcess('discord'), 'discord.exe');
   assert.equal(normalizeProcess('   '), null);
+  assert.equal(normalizePackage('com.instagram.android'), 'com.instagram.android');
+  assert.equal(normalizePackage('Instagram'), null);
 });

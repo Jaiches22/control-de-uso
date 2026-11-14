@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Control de uso</string>
+    <string name="accessibility_description">Control de uso necesita este permiso para saber qué app tienes abierta, detectar la pantalla de Shorts de YouTube y mostrar el aviso cuando se agota un límite. No lee ni guarda lo que escribes.</string>
+</resources>

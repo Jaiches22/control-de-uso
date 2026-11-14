@@ -78,8 +78,48 @@ jobs:
             desktop/release/latest.yml
           if-no-files-found: error
 
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Leer versión
+        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compilar el panel web
+        working-directory: android/web
+        run: npm ci && npm run build
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+      - name: Preparar la firma
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "Falta el secreto ANDROID_KEYSTORE_BASE64: sin él el APK no se puede firmar." >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/firma.p12"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/firma.p12" >> "$GITHUB_ENV"
+      - name: Compilar el APK
+        working-directory: android
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Renombrar
+        run: cp android/app/build/outputs/apk/release/app-release.apk "ControlDeUso-$VERSION.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: ControlDeUso-*.apk
+          if-no-files-found: error
+
   publicar:
-    needs: [extension, windows]
+    needs: [extension, windows, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

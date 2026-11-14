@@ -1,0 +1,29 @@
+name: Comprobar Android
+
+# Compila el APK de depuración en cada cambio de la app de Android, para detectar errores antes de publicar.
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', 'shared/**', '.github/workflows/android-check.yml']
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compilar el panel web
+        working-directory: android/web
+        run: npm ci && npm run build
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+      - name: Compilar el APK de depuración
+        working-directory: android
+        run: gradle --no-daemon :app:assembleDebug
