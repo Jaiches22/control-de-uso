@@ -100,15 +100,19 @@ No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
 - Limitación: las apps de la Microsoft Store pueden aparecer con el nombre de su contenedor (`applicationframehost.exe`).
 
 ### 6.4 App de Android
-- Kotlin + Jetpack Compose.
-- AccessibilityService (app en primer plano y detección de Shorts), UsageStatsManager (conciliación) y overlay.
-- Notificación fija con el tiempo restante.
-- Se instala desde fuera de Play Store; requiere "Permitir ajustes restringidos", accesibilidad, acceso a uso, superposición y quedar excluida de la optimización de batería.
-- APK firmado siempre con la misma clave (guardada como secreto del repositorio) para que las actualizaciones se instalen encima.
+- Kotlin, sin librerías externas (carpeta `android/`). La pantalla es un WebView con el mismo panel que la app de Windows (`shared/`), conectado al motor nativo: Hoy, Límites, Estadísticas y Permisos.
+- Un servicio de accesibilidad hace todo el trabajo: sabe qué app está en primer plano, detecta la pantalla de Shorts, muestra el aviso y vuelve al inicio. Android lo arranca solo al encender el móvil.
+- Solo se cuenta con la pantalla encendida y desbloqueada. No se cuentan el lanzador, el teclado ni la interfaz del sistema.
+- **Shorts:** se busca en la pantalla de YouTube el reproductor de Shorts por sus identificadores internos (`reel_recycler`, `reel_player…`, `reel_watch…`). Es frágil por diseño; la pestaña Permisos muestra si se detecta y qué pistas se ven, para ajustarlo cuando YouTube cambie.
+- **Bloqueo:** aviso a pantalla completa unos segundos y vuelta al inicio. Si el límite es solo de Shorts, primero se pulsa «atrás» para salir de Shorts sin cerrar YouTube; si sigue en Shorts, se vuelve al inicio.
+- Notificación fija con el tiempo restante de la app actual y notificación de aviso cuando queda 1 minuto.
+- Sincronización por consulta, sin conexión permanente: cada 30 s mientras hay uso, cada 15 s mientras la app en primer plano tiene límite, y al momento cuando se agota. Un bloqueo hecho desde otro dispositivo tarda como mucho 15 s en llegar al móvil.
+- Permisos que necesita: accesibilidad (con «Permitir ajustes restringidos», por instalarse fuera de Play Store), notificaciones y quedar sin restricción de batería. No necesita acceso a datos de uso ni permiso de superposición: el aviso lo dibuja el propio servicio de accesibilidad.
+- APK firmado siempre con la misma clave para que las actualizaciones se instalen encima. La clave vive en el secreto `ANDROID_KEYSTORE_BASE64` del repositorio.
 
 ### 6.5 Compilación y publicación
 - GitHub Actions compila el instalador de Windows, el APK y el zip de la extensión y los publica en Releases.
-- Secretos del repositorio: `SUPABASE_URL` y `SUPABASE_ANON_KEY` (se inyectan al compilar), más los de la firma de Android. `SUPABASE_ANON_KEY` contiene la clave *publishable* del proyecto, que es el nombre actual de la clave anon.
+- Secretos del repositorio: `SUPABASE_URL` y `SUPABASE_ANON_KEY` (se inyectan al compilar) y `ANDROID_KEYSTORE_BASE64` (firma del APK). `SUPABASE_ANON_KEY` contiene la clave *publishable* del proyecto, que es el nombre actual de la clave anon.
 - Se publica una versión al cambiar el archivo `VERSION` en `main`; el workflow crea la etiqueta `vX.Y.Z` y la release.
 - El repositorio es público: **nunca se suben claves ni contraseñas**. La contraseña de la base de datos solo la tiene el dueño y no se usa en ningún sitio del proyecto.
 - La clave anon acaba dentro de los instaladores públicos. Es una clave pensada para ser pública: la privacidad de los datos la garantizan RLS y el registro cerrado.
@@ -139,5 +143,7 @@ Cada fase termina con algo instalable y con instrucciones paso a paso.
 | 2026-11-14 | Pulsos de la extensión cada 30 s; login con email y contraseña. |
 | 2026-11-14 | App de Windows con Electron en lugar de C#/.NET: comparte código ya probado con la extensión, se puede probar automáticamente antes de publicar y trae actualización automática. A cambio ocupa más (instalador de unos 90 MB y más memoria). |
 | 2026-11-14 | Un límite no puede llevar youtube.com y Shorts a la vez: youtube.com ya incluye Shorts. |
+| 2026-11-14 | Android sin Jetpack Compose ni UsageStatsManager: panel compartido en un WebView y todo el conteo desde el servicio de accesibilidad. Menos permisos que conceder y la misma pantalla en móvil y ordenador. |
+| 2026-11-14 | Android sincroniza por consulta periódica en lugar de Realtime, para no mantener una conexión abierta gastando batería. |
 | 2026-11-14 | Margen de 10 minutos para corregir un límite recién creado. Un vídeo con sonido sigue contando aunque no se toque teclado ni ratón. |
 | 2026-11-14 | Proyecto de Supabase en París (eu-west-3), con RLS automático y sin exposición automática de tablas. |
