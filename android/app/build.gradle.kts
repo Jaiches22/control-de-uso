@@ -18,7 +18,7 @@ android {
         applicationId = "es.jaimecalzada.controldeuso"
         minSdk = 29
         targetSdk = 34
-        versionCode = versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2]
+        versionCode = maxOf(1, versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2])
         versionName = appVersion
         buildConfigField("String", "SUPABASE_URL", "\"${System.getenv("SUPABASE_URL") ?: ""}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${System.getenv("SUPABASE_ANON_KEY") ?: ""}\"")
