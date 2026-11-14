@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Control de uso",
+  "description": "Límites diarios de tiempo compartidos entre mis dispositivos.",
+  "version": "0.0.0",
+  "minimum_chrome_version": "120",
+  "incognito": "split",
+  "permissions": ["tabs", "storage", "alarms", "idle", "notifications", "webNavigation"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "Control de uso" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "icons": { "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

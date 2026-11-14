@@ -1,0 +1,20 @@
+{
+  "name": "control-de-uso-extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "e2e": "xvfb-run -a node e2e/run.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.280",
+    "esbuild": "^0.24.0",
+    "puppeteer-core": "^25.17.0",
+    "typescript": "^5.6.0"
+  }
+}
