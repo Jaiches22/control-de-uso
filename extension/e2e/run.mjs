@@ -9,10 +9,13 @@ const PORT = 8787;
 const calls = [];
 let limits = [];
 let seq = 0;
+let focus = null;
+let extraGrants = 0;
 
 const matches = (t, k) => t.kind === k.kind && (t.value === k.value || (t.kind === 'domain' && k.value.endsWith('.' + t.value)));
 const state = () => ({
   day: new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date()),
+  focus,
   server_time: new Date().toISOString(),
   resets_at: new Date(Date.now() + 3600_000).toISOString(),
   limits: limits.map((l) => ({ ...l, remaining_seconds: Math.max(l.daily_seconds - l.used_seconds, 0) })),
@@ -26,9 +29,18 @@ const rpc = {
     }
     return state();
   },
+  grant_extra: ({ p_limit_id }) => {
+    const l = limits.find((x) => x.id === p_limit_id);
+    l.daily_seconds += 300; l.extra_available = false; extraGrants++;
+    return state();
+  },
+  start_focus: ({ p_limit_ids, p_minutes }) => {
+    focus = { ends_at: new Date(Date.now() + p_minutes * 60000).toISOString(), limit_ids: p_limit_ids };
+    return state();
+  },
   upsert_limit: ({ p_name, p_daily_seconds, p_allow_extra, p_targets }) => {
     limits.push({
-      id: `l${++seq}`, name: p_name, daily_seconds: p_daily_seconds, used_seconds: 0, allow_extra: p_allow_extra,
+      id: `l${++seq}`, name: p_name, daily_seconds: p_daily_seconds, used_seconds: 0, allow_extra: p_allow_extra, extra_available: p_allow_extra,
       pending_daily_seconds: null, pending_delete: false, pending_effective: null,
       targets: p_targets.map((t) => ({ ...t, remove_on: null })),
     });
@@ -108,11 +120,11 @@ try {
   await options.waitForFunction(() => document.querySelector('#list').textContent.includes('Formulario'));
   assert.deepEqual(limits[0].targets.map((t) => t.value), ['otro.prueba.test']);
   assert.equal(limits[0].daily_seconds, 60);
-  for (const [name, dailySeconds, targets] of [
-    ['Corto', 8, [{ kind: 'domain', value: 'prueba.test' }]],
+  for (const [name, dailySeconds, targets, allowExtra = false] of [
+    ['Corto', 8, [{ kind: 'domain', value: 'prueba.test' }], true],
     ['Shorts', 0, [{ kind: 'special', value: 'youtube_shorts' }]],
   ]) {
-    const r = await options.evaluate((m) => chrome.runtime.sendMessage(m), { type: 'upsertLimit', id: null, name, dailySeconds, allowExtra: false, targets });
+    const r = await options.evaluate((m) => chrome.runtime.sendMessage(m), { type: 'upsertLimit', id: null, name, dailySeconds, allowExtra, targets });
     assert.ok(r.ok, JSON.stringify(r));
   }
   console.log('ok  crear límites');
@@ -128,7 +140,41 @@ try {
   assert.ok(took >= 7 && took <= 13, `bloqueó a los ${took}s`);
   const corto = limits.find((l) => l.name === 'Corto');
   assert.ok(corto.used_seconds >= 8 && corto.used_seconds <= 10, `usado ${corto.used_seconds}`);
+  assert.ok(took >= 7 && took <= 13, `bloqueó a los ${took}s`);
   console.log(`ok  bloqueo a los ${took.toFixed(1)} s, contados ${corto.used_seconds} s`);
+
+  // 3b. +5 minutos: soltar antes de tiempo no hace nada; mantener 5 s y esperar 10 s lo concede y devuelve a la web.
+  await site.waitForSelector('button.extra');
+  const box = await (await site.$('button.extra')).boundingBox();
+  await site.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await site.mouse.down(); await sleep(1500); await site.mouse.up();
+  await sleep(500);
+  assert.equal(extraGrants, 0);
+  assert.ok((await site.$eval('button.extra', (b) => b.textContent)).includes('Mantén pulsado'));
+  await site.mouse.down(); await sleep(5400); await site.mouse.up();
+  await site.waitForFunction(() => document.querySelector('button.extra')?.textContent.includes('cancelar'));
+  await site.waitForFunction(() => location.protocol === 'http:', { timeout: 15000 });
+  assert.equal(extraGrants, 1);
+  await sleep(1500);
+  assert.ok(site.url().includes('prueba.test'), site.url());
+  console.log('ok  +5 minutos con pulsación larga y cuenta atrás');
+  corto.daily_seconds = 0; // se vuelve a agotar para el resto de la prueba
+  await options.evaluate(() => chrome.runtime.sendMessage({ type: 'refresh' }));
+  await site.waitForFunction(() => location.pathname === '/blocked.html', { timeout: 8000 });
+  assert.equal(await site.$('button.extra'), null);
+
+  // 3c. Modo foco: bloquea un límite al que le queda tiempo de sobra.
+  const formulario = limits.find((l) => l.name === 'Formulario');
+  const f = await options.evaluate((m) => chrome.runtime.sendMessage(m), { type: 'startFocus', ids: [formulario.id], minutes: 30 });
+  assert.ok(f.ok, JSON.stringify(f));
+  const foco = await browser.newPage();
+  await foco.goto(`http://otro.prueba.test:${PORT}/x`).catch(() => undefined);
+  await foco.bringToFront();
+  await foco.waitForFunction(() => location.pathname === '/blocked.html', { timeout: 8000 });
+  await foco.waitForFunction(() => document.querySelector('#title').textContent.includes('modo foco'));
+  await foco.close();
+  await site.bringToFront();
+  console.log('ok  modo foco');
 
   // 4. Volver a entrar: bloqueo inmediato.
   await site.goto(`http://sub.prueba.test:${PORT}/otra`).catch(() => undefined);

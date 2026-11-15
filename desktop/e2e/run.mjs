@@ -14,9 +14,12 @@ const PORT = 8788, DEBUG_PORT = 9333;
 const calls = [];
 let limits = [];
 let seq = 0;
+let focus = null;
+let extraGrants = 0;
 const matches = (t, k) => t.kind === k.kind && (t.value === k.value || (t.kind === 'domain' && k.value.endsWith('.' + t.value)));
 const state = () => ({
   day: new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date()),
+  focus,
   server_time: new Date().toISOString(), resets_at: new Date(Date.now() + 3600_000).toISOString(),
   limits: limits.map((l) => ({ ...l, remaining_seconds: Math.max(l.daily_seconds - l.used_seconds, 0) })),
 });
@@ -29,11 +32,21 @@ const rpc = {
     }
     return state();
   },
+  grant_extra: ({ p_limit_id }) => {
+    const l = limits.find((x) => x.id === p_limit_id);
+    l.daily_seconds += 300; l.extra_available = false; extraGrants++;
+    return state();
+  },
+  start_focus: ({ p_limit_ids, p_minutes }) => {
+    focus = { ends_at: new Date(Date.now() + p_minutes * 60000).toISOString(), limit_ids: p_limit_ids };
+    return state();
+  },
   upsert_limit: ({ p_name, p_daily_seconds, p_allow_extra, p_targets }) => {
-    limits.push({ id: `l${++seq}`, name: p_name, daily_seconds: p_daily_seconds, used_seconds: 0, allow_extra: p_allow_extra,
+    limits.push({ id: `l${++seq}`, name: p_name, daily_seconds: p_daily_seconds, used_seconds: 0, allow_extra: p_allow_extra, extra_available: p_allow_extra,
       pending_daily_seconds: null, pending_delete: false, pending_effective: null, targets: p_targets.map((t) => ({ ...t, remove_on: null })) });
     return state();
   },
+  export_usage_csv: () => 'dia,tipo,nombre,dispositivo,segundos\n2026-11-14,win_process,"juego.exe","PC",8',
   get_stats: ({ p_bucket }) => ({
     bucket: p_bucket, from: '2026-11-01', to: '2026-11-14',
     series: Array.from({ length: 14 }, (_, i) => ({ start: `2026-11-${String(i + 1).padStart(2, '0')}`, seconds: i * 700 })),
@@ -75,7 +88,7 @@ writeFileSync(path.join(extSrc, 'version.json'), '{"version":"9.9.9"}');
 const localAppData = path.join(tmp, 'local');
 
 const child = spawn(electronPath, ['.', '--no-sandbox', `--remote-debugging-port=${DEBUG_PORT}`], {
-  env: { ...process.env, CDU_FAKE_FOREGROUND: fgFile, CDU_USER_DATA: path.join(tmp, 'data'), CDU_EXTENSION_SRC: extSrc, LOCALAPPDATA: localAppData },
+  env: { ...process.env, CDU_EXPORT_PATH: path.join(tmp, 'export.csv'), CDU_FAKE_FOREGROUND: fgFile, CDU_USER_DATA: path.join(tmp, 'data'), CDU_EXTENSION_SRC: extSrc, LOCALAPPDATA: localAppData },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let log = '';
@@ -142,6 +155,7 @@ try {
   await panel.waitForFunction(() => document.querySelector('#list').textContent.includes('app Windows juego.exe'));
   assert.deepEqual(limits[0].targets.map((t) => `${t.kind}:${t.value}`), ['win_process:juego.exe']);
   limits[0].daily_seconds = 8; // para no esperar un minuto
+  limits[0].extra_available = true;
   await panel.evaluate(() => cdu.send({ type: 'refresh' }));
   console.log('ok  crear límite con app elegida de la lista');
 
@@ -165,6 +179,24 @@ try {
   assert.equal(await visible(), 'visible');
   console.log(`ok  aviso de bloqueo a los ${took.toFixed(1)} s, contados ${juego.used_seconds} s`);
 
+  // 5b. +5 minutos desde el aviso: pulsación larga, cuenta atrás, y el aviso se quita.
+  await overlay.waitForSelector('button.extra');
+  const box = await (await overlay.$('button.extra')).boundingBox();
+  await overlay.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await overlay.mouse.down(); await sleep(5400); await overlay.mouse.up();
+  await overlay.waitForFunction(() => document.querySelector('button.extra')?.textContent.includes('cancelar'));
+  const t1 = Date.now();
+  while (extraGrants === 0 && Date.now() - t1 < 15000) await sleep(300);
+  assert.equal(extraGrants, 1);
+  await sleep(1800);
+  assert.equal(await visible(), 'hidden');
+  console.log('ok  +5 minutos desde el aviso');
+  limits[0].daily_seconds = 0; // se vuelve a agotar
+  await panel.evaluate(() => cdu.send({ type: 'refresh' }));
+  await sleep(1800);
+  assert.equal(await visible(), 'visible');
+  assert.equal(await overlay.$('button.extra'), null);
+
   // 6. Al cambiar a otra app el aviso se quita; al volver, reaparece.
   setFg('notas.exe');
   await sleep(1800);
@@ -184,6 +216,26 @@ try {
   assert.equal(total('brave.exe'), 0);
   assert.ok(entries.every((e) => e.kind === 'win_process'));
   console.log(`ok  estadísticas: notas.exe ${total('notas.exe')} s, brave.exe 0 s`);
+
+  // 7b. Modo foco desde el panel: bloquea una app a la que le queda tiempo.
+  const up = await panel.evaluate(() => cdu.send({ type: 'upsertLimit', id: null, name: 'Notas', dailySeconds: 3600, allowExtra: false, targets: [{ kind: 'win_process', value: 'notas.exe' }] }));
+  assert.ok(up.ok, JSON.stringify(up));
+  await panel.click('nav button[data-tab=limits]');
+  await panel.waitForFunction(() => [...document.querySelectorAll('#focus label')].some((l) => l.textContent.includes('Notas')));
+  await panel.evaluate(() => [...document.querySelectorAll('#focus label')].find((l) => l.textContent.includes('Notas')).querySelector('input').click());
+  await panel.click('#focusStart');
+  await panel.waitForFunction(() => document.querySelector('#focus').textContent.includes('Modo foco activo'));
+  setFg('notas.exe');
+  await overlay.waitForFunction(() => document.querySelector('#title').textContent.includes('modo foco'), { timeout: 8000 });
+  setFg(null);
+  console.log('ok  modo foco');
+
+  // 7c. Exportar a CSV.
+  await panel.click('nav button[data-tab=stats]');
+  await panel.click('#exportCsv');
+  await panel.waitForFunction(() => document.querySelector('#exportMsg').textContent.includes('Guardado'));
+  assert.ok(readFileSync(path.join(tmp, 'export.csv'), 'utf8').includes('juego.exe'));
+  console.log('ok  exportar CSV');
 
   // 8. Estadísticas: gráfica y lista.
   await panel.click('nav button[data-tab=stats]');

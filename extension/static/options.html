@@ -7,13 +7,16 @@
   <p class="error" id="error"></p>
   <div id="list"></div>
 
+  <h2>Modo foco</h2>
+  <div id="focus" class="card focusbox"></div>
+
   <h2 id="formTitle">Nuevo límite</h2>
   <form id="form" class="card">
     <label for="name">Nombre</label><input id="name" type="text" required maxlength="60" placeholder="Instagram">
     <label for="minutes">Minutos al día</label><input id="minutes" type="number" required min="0" max="1440" step="1" placeholder="12">
     <label for="domains">Webs (dominios separados por comas)</label><input id="domains" type="text" placeholder="instagram.com">
     <label class="check"><input id="shorts" type="checkbox"> YouTube Shorts (solo Shorts; no pongas youtube.com arriba)</label>
-    <label class="check"><input id="extra" type="checkbox"> Permitir +5 minutos extra (llegará en la fase 4)</label>
+    <label class="check"><input id="extra" type="checkbox"> Permitir +5 minutos extra desde la pantalla de bloqueo (una vez al día en total)</label>
     <p class="muted" id="otherTargets"></p>
     <div class="row"><button class="primary" type="submit" id="save">Guardar</button><button type="button" id="cancelEdit" hidden>Cancelar edición</button></div>
   </form>

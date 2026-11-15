@@ -54,6 +54,8 @@
       <p class="muted">Bajar un límite o añadir webs y apps se aplica al momento. Subirlo, borrarlo o quitar webs y apps entra en vigor a las 00:00. Un límite recién creado se puede corregir durante 10 minutos.</p>
       <p class="error" id="error"></p>
       <div id="list"></div>
+      <h2>Modo foco</h2>
+      <div id="focus" class="card focusbox"></div>
       <h2 id="formTitle">Nuevo límite</h2>
       <form id="form" class="card">
         <label for="name">Nombre</label><input id="name" type="text" required maxlength="60" placeholder="Instagram">
@@ -63,7 +65,7 @@
         <label for="apps">Apps de Windows (separadas por comas)</label><input id="apps" type="text" placeholder="spotify.exe">
         <p><button type="button" id="pickApp">Elegir de las apps abiertas</button></p>
         <div id="openApps"></div>
-        <label class="check"><input id="extra" type="checkbox"> Permitir +5 minutos extra (llegará en la fase 4)</label>
+        <label class="check"><input id="extra" type="checkbox"> Permitir +5 minutos extra desde la pantalla de bloqueo (una vez al día en total)</label>
         <p class="muted" id="otherTargets"></p>
         <div class="row"><button class="primary" type="submit" id="save">Guardar</button><button type="button" id="cancelEdit" hidden>Cancelar edición</button></div>
       </form>
@@ -79,6 +81,7 @@
         </div>
         <button id="statsAll" hidden>Ver el total</button>
       </div>
+      <p><button id="exportCsv">Exportar mis datos a CSV</button> <span class="muted" id="exportMsg"></span></p>
       <h2 id="statsTitle">Tiempo total</h2>
       <p class="error" id="statsError"></p>
       <svg class="chart" id="chart" role="img"></svg>

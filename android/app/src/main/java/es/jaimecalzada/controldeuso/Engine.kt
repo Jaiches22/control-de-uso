@@ -16,14 +16,15 @@ object Engine {
     const val YOUTUBE = "com.google.android.youtube"
     private const val FLUSH_EVERY_MS = 28_000L
     private const val LIMITED_REFRESH_MS = 15_000L
-    private const val IDLE_REFRESH_MS = 300_000L
+    private const val IDLE_REFRESH_MS = 60_000L
+    private const val SWITCH_REFRESH_MS = 10_000L
     private const val RETRY_GAP_MS = 3_000L
     private const val BLOCK_GAP_MS = 2_000L
 
     interface Host {
-        fun block(limit: Limit, shortsOnly: Boolean, state: State)
+        /** focusUntil > 0 cuando el bloqueo viene del modo foco y no de haber agotado el tiempo. */
+        fun block(limit: Limit, shortsOnly: Boolean, focusUntil: Long)
         fun warn(message: String)
-        fun status(text: String)
     }
 
     private class Cur(val keys: List<Key>, var since: Long)
@@ -59,7 +60,7 @@ object Engine {
     private var ticks = 0
     private var warnedDay = ""
     private val warnedIds = HashSet<String>()
-    private var lastStatus = ""
+    private var lastPkg: String? = null
 
     val device: String? get() = prefs.getString("device", null)
 
@@ -119,6 +120,10 @@ object Engine {
         }
     }
 
+    fun grantExtra(limitId: String, done: (Throwable?) -> Unit) {
+        call("grant_extra", JSONObject().put("p_limit_id", limitId).put("p_device", device ?: "?"), done)
+    }
+
     fun refresh(done: (() -> Unit)? = null) {
         refreshWanted = true
         sync(done)
@@ -172,7 +177,7 @@ object Engine {
                 lastBlockAt = now
                 // Si el límite solo coincide por Shorts, basta con salir de Shorts; si no, se sale de la app.
                 val shortsOnly = !blocked.matches(listOf(Key("android_package", pkg ?: "")))
-                host?.block(blocked, shortsOnly, st)
+                host?.block(blocked, shortsOnly, if (st.inFocus(blocked, now)) st.focusEndsAt else 0L)
             }
         }
 
@@ -180,26 +185,17 @@ object Engine {
         val prev = cur
         cur = if (keys == null) null else Cur(keys, if (prev != null && prev.keys == keys) prev.since else now)
 
-        // 4. Notificación fija con el tiempo restante (solo cambia cuando cambia el texto).
-        val status = when {
-            blocked != null -> "${blocked.name}: agotado por hoy"
-            tightest != null -> {
-                val left = tightest!!.second
-                val shown = if (left > 60) fmtDuration(left / 60 * 60) else fmtDuration(left)
-                "${tightest!!.first.name}: quedan $shown"
-            }
-            else -> "Sin límite en la app actual"
-        }
-        if (status != lastStatus) { lastStatus = status; host?.status(status) }
-
-        // 5. Sincronizar cuando toca.
+        // 4. Sincronizar cuando toca. Al cambiar de app se refresca para enterarse pronto de bloqueos de otros dispositivos.
         val hasPending = pending.isNotEmpty()
         val stale = st == null || st.day != today
         val limited = tightest != null || blocked != null
         val sinceFlush = now - lastFlushAt
+        val switched = pkg != null && pkg != lastPkg
+        lastPkg = pkg
         val due = refreshWanted || stale ||
             (hasPending && (sinceFlush > FLUSH_EVERY_MS || blocked != null)) ||
             (limited && sinceFlush > LIMITED_REFRESH_MS) ||
+            (switched && sinceFlush > SWITCH_REFRESH_MS) ||
             (pkg != null && sinceFlush > IDLE_REFRESH_MS)
         if (due && (refreshWanted || now - lastAttemptAt > RETRY_GAP_MS)) sync(null)
 

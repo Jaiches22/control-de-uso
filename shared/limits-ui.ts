@@ -1,6 +1,6 @@
 // Lista y formulario de límites. Lo comparten la extensión y la app de Windows: mismo HTML (mismos id),
 // distinta forma de hablar con el motor (mensajes de extensión o IPC de Electron).
-import { fmtDuration, normalizeDomain, SHORTS, type Key, type Limit, type State } from './core.ts';
+import { fmtClock, fmtDuration, inFocus, normalizeDomain, SHORTS, type Key, type Limit, type State } from './core.ts';
 
 export interface LimitsStatus { state: State | null; remaining: Record<string, number> }
 /** Una app elegible: id es lo que se guarda (proceso .exe o paquete Android) y label lo que se enseña. */
@@ -96,16 +96,77 @@ export function initLimitsUI<S extends LimitsStatus>(opts: LimitsOptions<S>): { 
         cancel.addEventListener('click', () => void act({ type: 'cancelPending', id: l.id }));
         buttons.push(cancel);
       }
-      list.append(el('div', { className: 'card' }, [
+      const focused = st.state ? inFocus(l, st.state) : false;
+      if (focused) notes.push(`En modo foco hasta las ${fmtClock(st.state!.focus!.ends_at)}.`);
+      if (l.allow_extra && l.extra_from) notes.push('El +5 estará disponible a partir de las 00:00.');
+      const card = el('div', { className: 'card' }, [
         el('div', { className: 'row' }, [
           el('strong', { textContent: l.name }),
-          el('span', { textContent: `${fmtDuration(l.daily_seconds)} al día · ${left <= 0 ? 'agotado' : 'quedan ' + fmtDuration(left)}` }),
+          el('span', { textContent: `${fmtDuration(l.daily_seconds)} al día · ${focused ? 'en foco' : left <= 0 ? 'agotado' : 'quedan ' + fmtDuration(left)}` }),
         ]),
         el('p', { className: 'muted', textContent: targets.length ? targets.join(', ') : 'Sin webs ni apps' }),
         el('p', { className: 'tag', textContent: notes.join(' ') }),
         el('div', {}, buttons.flatMap((b) => [b, ' '])),
-      ]));
+      ]);
+      const suggested = l.suggested_daily_seconds;
+      if (suggested && suggested < l.daily_seconds) {
+        const lower = el('button', { type: 'button', className: 'primary', textContent: `Bajar a ${fmtDuration(suggested)}` });
+        lower.addEventListener('click', () => void act({
+          type: 'upsertLimit', id: l.id, name: l.name, dailySeconds: suggested, allowExtra: l.allow_extra,
+          targets: l.targets.filter((t) => !t.remove_on).map((t) => ({ kind: t.kind, value: t.value })),
+        }));
+        const no = el('button', { type: 'button', textContent: 'No, gracias' });
+        no.addEventListener('click', () => void act({ type: 'snoozeSuggestion', id: l.id }));
+        card.classList.add('suggest');
+        card.append(
+          el('p', { textContent: `En las últimas 2 semanas has usado bastante menos de lo que permite este límite. ¿Lo bajamos a ${fmtDuration(suggested)} al día?` }),
+          el('div', {}, [lower, ' ', no]),
+        );
+      }
+      list.append(card);
     }
+    renderFocus(st);
+  }
+
+  // ---- modo foco: bloquear los límites elegidos durante un rato, en todos los dispositivos
+  const focusPicked = new Set<string>();
+  let focusMinutes = '25';
+  function renderFocus(st: S): void {
+    const box = byId('focus');
+    if (!box) return;
+    const limits = st.state?.limits ?? [];
+    const active = st.state?.focus && new Date(st.state.focus.ends_at).getTime() > Date.now() ? st.state.focus : null;
+    box.replaceChildren();
+    if (active) {
+      const names = limits.filter((l) => active.limit_ids.includes(l.id)).map((l) => l.name).join(', ');
+      box.append(el('p', { className: 'tag', textContent: `Modo foco activo hasta las ${fmtClock(active.ends_at)}: ${names}.` }));
+    }
+    if (limits.length === 0) {
+      box.append(el('p', { className: 'muted', textContent: 'Crea algún límite para poder usar el modo foco.' }));
+      return;
+    }
+    for (const l of limits) {
+      const cb = el('input', { type: 'checkbox', checked: focusPicked.has(l.id) });
+      cb.addEventListener('change', () => { if (cb.checked) focusPicked.add(l.id); else focusPicked.delete(l.id); });
+      box.append(el('label', { className: 'check' }, [cb, ` ${l.name}`]));
+    }
+    const minutes = el('input', { type: 'number', min: '1', max: '720', step: '1', value: focusMinutes });
+    minutes.id = 'focusMinutes';
+    minutes.addEventListener('input', () => { focusMinutes = minutes.value; });
+    const start = el('button', { type: 'button', className: 'primary', textContent: active ? 'Ampliar el foco' : 'Empezar' });
+    start.id = 'focusStart';
+    start.addEventListener('click', () => {
+      const ids = [...focusPicked].filter((id) => limits.some((l) => l.id === id));
+      const mins = Number(minutes.value);
+      if (ids.length === 0) return showError('Marca al menos un límite para el modo foco.');
+      if (!Number.isInteger(mins) || mins < 1 || mins > 720) return showError('El foco dura entre 1 y 720 minutos.');
+      void act({ type: 'startFocus', ids, minutes: mins }).then((ok) => { if (ok) focusPicked.clear(); });
+    });
+    box.append(
+      el('label', { textContent: 'Minutos' }), minutes,
+      el('p', { className: 'muted', textContent: 'Bloquea lo marcado en todos tus dispositivos. Una vez empezado no se puede cancelar.' }),
+      start,
+    );
   }
 
   function startEdit(l: Limit | null): void {

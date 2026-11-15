@@ -10,12 +10,18 @@ export interface Limit {
   used_seconds: number;
   remaining_seconds: number;
   allow_extra: boolean;
+  /** El +5 se puede pedir ahora mismo (permitido en este límite y aún no gastado hoy). */
+  extra_available?: boolean;
+  extra_from?: string | null;
+  /** Propuesta de límite más bajo, si la media de 2 semanas queda claramente por debajo. */
+  suggested_daily_seconds?: number | null;
   pending_daily_seconds: number | null;
   pending_delete: boolean;
   pending_effective: string | null;
   targets: Target[];
 }
-export interface State { day: string; server_time: string; resets_at: string; limits: Limit[] }
+export interface Focus { ends_at: string; limit_ids: string[] }
+export interface State { day: string; server_time: string; resets_at: string; limits: Limit[]; focus?: Focus | null; extra_used_today?: boolean }
 export interface PendingEntry { kind: Kind; value: string; seconds: number; day: string; also?: Key[] }
 export type Pending = Record<string, PendingEntry>;
 
@@ -77,8 +83,18 @@ export function addPending(pending: Pending, keys: Key[], seconds: number, day: 
   else pending[id] = { kind: main.kind, value: main.value, seconds, day, ...(also.length ? { also } : {}) };
 }
 
-/** Segundos que le quedan hoy a un límite: lo que dice el servidor menos lo local aún sin enviar. */
-export function effectiveRemaining(limit: Limit, state: State, pending: Pending, today: string): number {
+/** ¿Está este límite bloqueado ahora mismo por el modo foco? */
+export function inFocus(limit: Limit, state: State, now: number = Date.now()): boolean {
+  const f = state.focus;
+  return !!f && f.limit_ids.includes(limit.id) && new Date(f.ends_at).getTime() > now;
+}
+
+/**
+ * Segundos que le quedan hoy a un límite: lo que dice el servidor menos lo local aún sin enviar.
+ * Con el modo foco activo sobre él, cero.
+ */
+export function effectiveRemaining(limit: Limit, state: State, pending: Pending, today: string, now: number = Date.now()): number {
+  if (inFocus(limit, state, now)) return 0;
   let remaining = state.day === today ? limit.remaining_seconds : limit.daily_seconds;
   for (const e of Object.values(pending)) {
     if (e.day !== today) continue;
@@ -104,4 +120,8 @@ export function fmtDuration(totalSeconds: number): string {
   if (h > 0) return `${h} h ${m} min`;
   if (m > 0) return sec ? `${m} min ${sec} s` : `${m} min`;
   return `${sec} s`;
+}
+
+export function fmtClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 }

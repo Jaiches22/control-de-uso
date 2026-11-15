@@ -1,9 +1,9 @@
 // Proceso principal: bandeja, panel, aviso de bloqueo, carpeta de la extensión y actualizaciones.
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray } from 'electron';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fmtDuration, type Limit, type State } from '../../../shared/core.ts';
+import { fmtClock, fmtDuration, inFocus, type Limit, type State } from '../../../shared/core.ts';
 import { Engine } from './engine.ts';
 import { createPlatform, platformError, type Foreground } from './platform.ts';
 import { authStorage, loadData, saveData } from './store.ts';
@@ -93,16 +93,22 @@ function setBlock(limit: Limit | null, state: State | null, fg: Foreground | nul
     const dip = process.platform === 'win32' ? screen.screenToDipRect(null, fg.rect) : fg.rect;
     display = screen.getDisplayMatching(dip);
   }
-  const key = `${limit.id}|${display.id}|${fg?.exe}`;
+  const focused = !!state && inFocus(limit, state);
+  const key = `${limit.id}|${display.id}|${fg?.exe}|${focused}|${!!limit.extra_available}`;
   if (key === overlayKey) return;
   overlayKey = key;
   const win = ensureOverlay();
-  const data = {
-    name: limit.name,
-    detail: `Has gastado tus ${fmtDuration(limit.daily_seconds)} de hoy entre todos tus dispositivos.`,
-    resetsAt: state?.resets_at ?? null,
-    app: fg?.exe ?? '',
-  };
+  const data = focused
+    ? {
+      id: limit.id, title: `${limit.name} está en modo foco`,
+      detail: `Lo bloqueaste tú hasta las ${fmtClock(state!.focus!.ends_at)}.`,
+      resetsAt: null, extra: false,
+    }
+    : {
+      id: limit.id, title: `Se acabó ${limit.name} por hoy`,
+      detail: `Has gastado tu tiempo de hoy (${fmtDuration(limit.daily_seconds)}) entre todos tus dispositivos.`,
+      resetsAt: state?.resets_at ?? null, extra: !!limit.extra_available,
+    };
   const send = () => win.webContents.send('overlay', data);
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send); else send();
   win.setBounds(display.bounds);
@@ -114,6 +120,10 @@ function setBlock(limit: Limit | null, state: State | null, fg: Foreground | nul
 
 const ERRORS: Record<string, string> = {
   target_in_use: 'Esa web o app ya está en otro límite.',
+  extra_already_used: 'El +5 de hoy ya está gastado.',
+  extra_not_allowed: 'Este límite no permite el +5 ahora mismo.',
+  focus_without_limits: 'Marca al menos un límite para el modo foco.',
+  invalid_minutes: 'El foco dura entre 1 y 720 minutos.',
   limit_not_found: 'Ese límite ya no existe.',
   invalid_daily_seconds: 'Los minutos tienen que estar entre 0 y 1440.',
   'Invalid login credentials': 'Email o contraseña incorrectos.',
@@ -156,6 +166,19 @@ function registerIpc(sb: SupabaseClient): void {
         return status(sb);
       case 'deleteLimit': await engine.call('delete_limit', { p_id: msg.id }); return status(sb);
       case 'cancelPending': await engine.call('cancel_pending', { p_id: msg.id }); return status(sb);
+      case 'snoozeSuggestion': await engine.call('snooze_suggestion', { p_id: msg.id }); return status(sb);
+      case 'grantExtra': await engine.call('grant_extra', { p_limit_id: msg.id, p_device: engine.device ?? '?' }); return status(sb);
+      case 'startFocus': await engine.call('start_focus', { p_limit_ids: msg.ids, p_minutes: msg.minutes }); return status(sb);
+      case 'exportCsv': {
+        const { data, error } = await sb.rpc('export_usage_csv');
+        if (error) throw new Error(error.message);
+        const chosen = process.env.CDU_EXPORT_PATH
+          ?? (await dialog.showSaveDialog({ title: 'Exportar mis datos', defaultPath: 'control-de-uso.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] })).filePath;
+        if (!chosen) return { saved: false };
+        // El BOM hace que Excel abra bien los acentos.
+        writeFileSync(chosen, '\ufeff' + String(data), 'utf8');
+        return { saved: true, path: chosen };
+      }
       case 'listApps': return (await platform.listOpenApps()).map((a) => ({ id: a.exe, label: a.exe }));
       case 'stats': {
         const { data, error } = await sb.rpc('get_stats', {

@@ -76,7 +76,7 @@ function onRemoteChange(): void {
 async function ensureRealtime(): Promise<void> {
   if (channel || !(await hasSession())) return;
   channel = sb.channel('cambios');
-  for (const table of ['limit_usage', 'limits', 'limit_targets']) {
+  for (const table of ['limit_usage', 'limits', 'limit_targets', 'extra_grants', 'focus_sessions']) {
     channel.on('postgres_changes' as never, { event: '*', schema: 'public', table } as never, onRemoteChange);
   }
   channel.subscribe();
@@ -255,6 +255,10 @@ void setup();
 
 const ERRORS: Record<string, string> = {
   target_in_use: 'Esa web ya está en otro límite.',
+  extra_already_used: 'El +5 de hoy ya está gastado.',
+  extra_not_allowed: 'Este límite no permite el +5 ahora mismo.',
+  focus_without_limits: 'Marca al menos un límite para el modo foco.',
+  invalid_minutes: 'El foco dura entre 1 y 720 minutos.',
   limit_not_found: 'Ese límite ya no existe.',
   invalid_daily_seconds: 'Los minutos tienen que estar entre 0 y 1440.',
   'Invalid login credentials': 'Email o contraseña incorrectos.',
@@ -293,7 +297,10 @@ type Msg =
   | { type: 'login'; email: string; password: string; device: string }
   | { type: 'upsertLimit'; id: string | null; name: string; dailySeconds: number; allowExtra: boolean; targets: Key[] }
   | { type: 'deleteLimit'; id: string }
-  | { type: 'cancelPending'; id: string };
+  | { type: 'cancelPending'; id: string }
+  | { type: 'snoozeSuggestion'; id: string }
+  | { type: 'grantExtra'; id: string }
+  | { type: 'startFocus'; ids: string[]; minutes: number };
 
 async function handle(msg: Msg) {
   switch (msg.type) {
@@ -323,6 +330,17 @@ async function handle(msg: Msg) {
       return status();
     case 'cancelPending':
       await saveState(await rpc('cancel_pending', { p_id: msg.id }));
+      return status();
+    case 'snoozeSuggestion':
+      await saveState(await rpc('snooze_suggestion', { p_id: msg.id }));
+      return status();
+    case 'grantExtra': {
+      const { [K.device]: device } = await chrome.storage.local.get(K.device);
+      await saveState(await rpc('grant_extra', { p_limit_id: msg.id, p_device: device ?? '?' }));
+      return status();
+    }
+    case 'startFocus':
+      await saveState(await rpc('start_focus', { p_limit_ids: msg.ids, p_minutes: msg.minutes }));
       return status();
   }
 }

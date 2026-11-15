@@ -21,12 +21,20 @@ import org.json.JSONObject
 /** Pantalla única: un WebView con el mismo panel que la app de Windows, conectado al motor nativo. */
 class MainActivity : Activity() {
     private lateinit var web: WebView
+    private var exportId = 0
+    private var exportText: String? = null
+
+    private companion object { const val REQUEST_EXPORT = 7 }
 
     private val errors = mapOf(
         "target_in_use" to "Esa web o app ya está en otro límite.",
         "limit_not_found" to "Ese límite ya no existe.",
         "invalid_daily_seconds" to "Los minutos tienen que estar entre 0 y 1440.",
         "Invalid login credentials" to "Email o contraseña incorrectos.",
+        "extra_already_used" to "El +5 de hoy ya está gastado.",
+        "extra_not_allowed" to "Este límite no permite el +5 ahora mismo.",
+        "focus_without_limits" to "Marca al menos un límite para el modo foco.",
+        "invalid_minutes" to "El foco dura entre 1 y 720 minutos.",
     )
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -47,6 +55,7 @@ class MainActivity : Activity() {
         super.onResume()
         Engine.onChange = { web.evaluateJavascript("window.__cduChanged && window.__cduChanged()", null) }
         Engine.refresh()
+        Updater.check { Engine.onChange?.invoke() }
     }
 
     override fun onPause() {
@@ -96,6 +105,8 @@ class MainActivity : Activity() {
                 .put("accessibility", UsageService.instance != null)
                 .put("notifications", getSystemService(NotificationManager::class.java).areNotificationsEnabled())
                 .put("battery", power.isIgnoringBatteryOptimizations(packageName))
+                .put("update", Updater.available?.let { JSONObject().put("version", it.version) } ?: JSONObject.NULL)
+                .put("updateMessage", Updater.lastMessage ?: JSONObject.NULL)
                 .put("shorts", Engine.shorts)
                 .put("youtubeIds", JSONArray(Engine.youtubeIds)))
     }
@@ -124,6 +135,31 @@ class MainActivity : Activity() {
                 .put("p_targets", msg.getJSONArray("targets")))
             "deleteLimit" -> config(id, "delete_limit", JSONObject().put("p_id", msg.getString("id")))
             "cancelPending" -> config(id, "cancel_pending", JSONObject().put("p_id", msg.getString("id")))
+            "snoozeSuggestion" -> config(id, "snooze_suggestion", JSONObject().put("p_id", msg.getString("id")))
+            "grantExtra" -> config(id, "grant_extra", JSONObject().put("p_limit_id", msg.getString("id")).put("p_device", Engine.device ?: "?"))
+            "startFocus" -> config(id, "start_focus", JSONObject().put("p_limit_ids", msg.getJSONArray("ids")).put("p_minutes", msg.getInt("minutes")))
+            "exportCsv" -> Engine.background({ JSONObject("{\"v\":" + Engine.api.rpc("export_usage_csv", JSONObject()) + "}").getString("v") }) { r ->
+                r.onSuccess { csv ->
+                    // Android abre su selector de "guardar como"; el resultado llega en onActivityResult.
+                    exportId = id
+                    exportText = csv
+                    val pick = Intent(Intent.ACTION_CREATE_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType("text/csv")
+                        .putExtra(Intent.EXTRA_TITLE, "control-de-uso.csv")
+                    try {
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(pick, REQUEST_EXPORT)
+                    } catch (e: Exception) {
+                        exportText = null
+                        fail(id, e)
+                    }
+                }.onFailure { fail(id, it) }
+            }
+            "installUpdate" -> {
+                val update = Updater.available ?: throw IllegalStateException("No hay ninguna actualización pendiente.")
+                Updater.install(this, update) { error -> if (error == null) ok(id, status()) else fail(id, error) }
+            }
             "listApps" -> Engine.background({ installedApps() }) { r ->
                 r.onSuccess { ok(id, it) }.onFailure { fail(id, it) }
             }
@@ -142,6 +178,27 @@ class MainActivity : Activity() {
                 ok(id, null)
             }
             else -> throw IllegalArgumentException("Mensaje desconocido")
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_EXPORT) return
+        val text = exportText
+        exportText = null
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null || text == null) {
+            ok(exportId, JSONObject().put("saved", false))
+            return
+        }
+        try {
+            // El BOM hace que Excel abra bien los acentos.
+            contentResolver.openOutputStream(uri)?.use { it.write(("\uFEFF" + text).toByteArray(Charsets.UTF_8)) }
+            ok(exportId, JSONObject().put("saved", true))
+        } catch (e: Exception) {
+            fail(exportId, e)
         }
     }
 

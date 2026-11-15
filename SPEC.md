@@ -60,14 +60,15 @@ No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
 - **Apps de Windows:** ventana de aviso a pantalla completa y siempre encima mientras la app bloqueada esté en primer plano.
 - **Android:** pantalla de aviso superpuesta (overlay) y vuelta al inicio.
 - **Aviso previo:** notificación normal cuando queda 1 minuto.
+- Los formularios de inicio de sesión tienen un botón para ver la contraseña.
 
 ## 5. Extras
 
-- **+5 minutos:** solo aparece en la pantalla de bloqueo y solo en los límites marcados para ello en la configuración. Hay que mantener pulsado 5 s; después hay una cuenta atrás de 10 s cancelable. Una vez al día en total entre todos los dispositivos y todos los límites.
-- **Sugerencia de bajar límites:** si la media de uso de un límite en las últimas 2 semanas está por debajo del 70 % del límite, se propone uno nuevo más bajo.
-- **Modo foco:** bloquea la lista de límites elegida durante X minutos en todos los dispositivos. No se puede cancelar.
-- **Exportar a CSV** todos los datos de uso.
-- **Actualizaciones automáticas:** la app de Windows y la de Android consultan GitHub Releases. Android pide confirmación al instalar cada actualización (limitación del sistema). La extensión se instala sin empaquetar en una carpeta que gestiona la app de Windows, que la actualiza; la extensión se recarga sola al detectar una versión nueva.
+- **+5 minutos:** solo aparece en la pantalla de bloqueo y solo en los límites marcados para ello en la configuración. Hay que mantener pulsado 5 s; después hay una cuenta atrás de 10 s cancelable. Una vez al día en total entre todos los dispositivos y todos los límites. Activar el +5 en un límite que ya existía entra en vigor a las 00:00 (regla anti-trampa). No se ofrece durante el modo foco.
+- **Sugerencia de bajar límites:** si la media de uso de un límite en los últimos 14 días completos está por debajo del 70 % del límite, se propone uno nuevo: la media más un 15 % de margen, redondeada al minuto. Aparece en la pantalla de Límites con «Bajar» y «No, gracias» (no vuelve a salir en 14 días). Solo para límites con al menos 14 días de vida.
+- **Modo foco:** bloquea los límites elegidos durante X minutos (1 a 720) en todos los dispositivos. No se puede cancelar ni acortar; sí ampliar o añadir límites.
+- **Exportar a CSV** todos los datos de uso (día, tipo, web o app, dispositivo, segundos), desde la pestaña Estadísticas de Windows y Android.
+- **Actualizaciones automáticas:** la app de Windows y la de Android consultan GitHub Releases. Windows se actualiza sola. Android avisa con una notificación y un botón «Actualizar» en la app, y pide confirmación al instalar (limitación del sistema). La extensión se instala sin empaquetar en una carpeta que gestiona la app de Windows, que la actualiza; la extensión se recarga sola al detectar una versión nueva.
 
 ## 6. Arquitectura
 
@@ -75,7 +76,7 @@ No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
 - Autenticación con email y contraseña. Un único usuario; el registro de usuarios nuevos queda desactivado una vez creado.
 - RLS en todas las tablas: cada fila pertenece a un usuario y solo él puede leerla o escribirla.
 - Las tablas nuevas no se exponen automáticamente a la API; los permisos se conceden de forma explícita en las migraciones.
-- Contador atómico mediante función RPC (`add_usage`), que suma segundos y devuelve el estado completo. Resto de funciones: `get_state`, `upsert_limit`, `delete_limit`, `cancel_pending` y `get_stats` (estadísticas agregadas por día, semana, mes o año).
+- Contador atómico mediante función RPC (`add_usage`), que suma segundos y devuelve el estado completo. Resto de funciones: `get_state`, `upsert_limit`, `delete_limit`, `cancel_pending` `get_stats` (estadísticas agregadas por día, semana, mes o año), `grant_extra`, `start_focus`, `snooze_suggestion` y `export_usage_csv`.
 - Tablas: `limits`, `limit_targets` (identificadores de cada límite), `usage` (todo el uso, para estadísticas) y `limit_usage` (contador diario de cada límite).
 - Realtime para propagar al momento bloqueos, cambios de límites, modo foco y uso del +5.
 - Migraciones SQL versionadas en `supabase/migrations/`.
@@ -105,8 +106,8 @@ No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
 - Solo se cuenta con la pantalla encendida y desbloqueada. No se cuentan el lanzador, el teclado ni la interfaz del sistema.
 - **Shorts:** se busca en la pantalla de YouTube el reproductor de Shorts por sus identificadores internos (`reel_recycler`, `reel_player…`, `reel_watch…`). Es frágil por diseño; la pestaña Permisos muestra si se detecta y qué pistas se ven, para ajustarlo cuando YouTube cambie.
 - **Bloqueo:** aviso a pantalla completa unos segundos y vuelta al inicio. Si el límite es solo de Shorts, primero se pulsa «atrás» para salir de Shorts sin cerrar YouTube; si sigue en Shorts, se vuelve al inicio.
-- Notificación fija con el tiempo restante de la app actual y notificación de aviso cuando queda 1 minuto.
-- Sincronización por consulta, sin conexión permanente: cada 30 s mientras hay uso, cada 15 s mientras la app en primer plano tiene límite, y al momento cuando se agota. Un bloqueo hecho desde otro dispositivo tarda como mucho 15 s en llegar al móvil.
+- Notificación de aviso cuando queda 1 minuto. No hay notificación permanente (se quitó a petición propia: no aportaba nada).
+- Sincronización por consulta, sin conexión permanente: al cambiar de app, cada 30 s mientras hay uso, cada 15 s mientras la app en primer plano tiene límite, y al momento cuando se agota. Un bloqueo o un modo foco iniciado en otro dispositivo tarda como mucho 15 s en llegar al móvil.
 - Permisos que necesita: accesibilidad (con «Permitir ajustes restringidos», por instalarse fuera de Play Store), notificaciones y quedar sin restricción de batería. No necesita acceso a datos de uso ni permiso de superposición: el aviso lo dibuja el propio servicio de accesibilidad.
 - APK firmado siempre con la misma clave para que las actualizaciones se instalen encima. La clave vive en el secreto `ANDROID_KEYSTORE_BASE64` del repositorio.
 
@@ -144,6 +145,7 @@ Cada fase termina con algo instalable y con instrucciones paso a paso.
 | 2026-11-14 | App de Windows con Electron en lugar de C#/.NET: comparte código ya probado con la extensión, se puede probar automáticamente antes de publicar y trae actualización automática. A cambio ocupa más (instalador de unos 90 MB y más memoria). |
 | 2026-11-14 | Un límite no puede llevar youtube.com y Shorts a la vez: youtube.com ya incluye Shorts. |
 | 2026-11-14 | Android sin Jetpack Compose ni UsageStatsManager: panel compartido en un WebView y todo el conteo desde el servicio de accesibilidad. Menos permisos que conceder y la misma pantalla en móvil y ordenador. |
+| 2026-11-15 | Fuera la notificación permanente de Android. Activar el +5 en un límite existente espera a las 00:00. |
 | 2026-11-14 | Android sincroniza por consulta periódica en lugar de Realtime, para no mantener una conexión abierta gastando batería. |
 | 2026-11-14 | Margen de 10 minutos para corregir un límite recién creado. Un vídeo con sonido sigue contando aunque no se toque teclado ni ratón. |
 | 2026-11-14 | Proyecto de Supabase en París (eu-west-3), con RLS automático y sin exposición automática de tablas. |

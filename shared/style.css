@@ -23,3 +23,6 @@ button.chip { padding: 4px 10px; border-radius: 999px; font-size: 13px; margin: 
 nav button[aria-selected=true], #buckets button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: #062b1f; font-weight: 600; }
 .ok { font-size: 12px; color: var(--accent); }
 .pw { display: flex; gap: 6px; } .pw input { flex: 1; min-width: 0; } .pw button { white-space: nowrap; }
+button.extra { margin-top: 18px; padding: 12px 18px; touch-action: none; user-select: none; }
+.suggest { border-color: var(--warn); }
+.focusbox label.check { margin: 6px 0; }

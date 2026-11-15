@@ -18,6 +18,7 @@ data class Limit(
     val name: String,
     val dailySeconds: Int,
     val remainingSeconds: Int,
+    val extraAvailable: Boolean,
     val targets: List<Key>,
 ) {
     fun matches(keys: List<Key>): Boolean = targets.any { t -> keys.any { k -> targetMatches(t, k) } }
@@ -27,6 +28,23 @@ data class Limit(
 class State(val json: JSONObject) {
     val day: String = json.optString("day")
     val resetsAt: String = json.optString("resets_at")
+
+    /** Modo foco: hasta cuándo (en milisegundos) y sobre qué límites. Cero si no hay foco. */
+    val focusEndsAt: Long
+    val focusIds: Set<String>
+
+    init {
+        val f = json.optJSONObject("focus")
+        val ids = f?.optJSONArray("limit_ids")
+        focusEndsAt = try {
+            if (f == null) 0L else java.time.OffsetDateTime.parse(f.getString("ends_at")).toInstant().toEpochMilli()
+        } catch (e: Exception) {
+            0L
+        }
+        focusIds = if (ids == null) emptySet() else (0 until ids.length()).map { ids.getString(it) }.toSet()
+    }
+
+    fun inFocus(limit: Limit, now: Long): Boolean = focusEndsAt > now && limit.id in focusIds
     val limits: List<Limit> = run {
         val arr = json.optJSONArray("limits") ?: JSONArray()
         (0 until arr.length()).map { i ->
@@ -37,6 +55,7 @@ class State(val json: JSONObject) {
                 name = o.optString("name"),
                 dailySeconds = o.optInt("daily_seconds"),
                 remainingSeconds = o.optInt("remaining_seconds"),
+                extraAvailable = o.optBoolean("extra_available", false),
                 targets = (0 until ts.length()).map { j ->
                     val t = ts.getJSONObject(j)
                     Key(t.getString("kind"), t.getString("value"))
@@ -85,7 +104,8 @@ fun addPending(pending: MutableMap<String, PendingEntry>, keys: List<Key>, secon
 }
 
 /** Segundos que le quedan hoy a un límite: lo que dice el servidor menos lo local aún sin enviar. */
-fun effectiveRemaining(limit: Limit, state: State, pending: Map<String, PendingEntry>, today: String): Int {
+fun effectiveRemaining(limit: Limit, state: State, pending: Map<String, PendingEntry>, today: String, now: Long = System.currentTimeMillis()): Int {
+    if (state.inFocus(limit, now)) return 0
     var remaining = if (state.day == today) limit.remainingSeconds else limit.dailySeconds
     for (e in pending.values) {
         if (e.day == today && limit.matches(e.keys)) remaining -= e.seconds
@@ -117,3 +137,5 @@ fun fmtDuration(totalSeconds: Int): String {
         else -> "$sec s"
     }
 }
+
+fun fmtClock(millis: Long): String = SimpleDateFormat("HH:mm", Locale.US).format(Date(millis))

@@ -1,5 +1,5 @@
 // Panel de la app (Windows y Android). Cada plataforma pone su HTML y un objeto global `cdu` para hablar con su motor.
-import { fmtDuration, type State } from './core.ts';
+import { fmtClock, fmtDuration, inFocus, type State } from './core.ts';
 import { describeTarget, el, initLimitsUI, initPasswordToggle, type AppChoice } from './limits-ui.ts';
 
 interface Status {
@@ -7,7 +7,10 @@ interface Status {
   remaining: Record<string, number>; version: string; foreground: string | null; platformError: string | null;
   platform: 'windows' | 'android';
   extension?: { dir: string; version: string | null };
-  android?: { accessibility: boolean; notifications: boolean; battery: boolean; shorts: boolean; youtubeIds: string[] };
+  android?: {
+    accessibility: boolean; notifications: boolean; battery: boolean; shorts: boolean; youtubeIds: string[];
+    update?: { version: string } | null; updateMessage?: string | null;
+  };
 }
 interface Stats {
   bucket: Bucket; from: string; to: string;
@@ -36,7 +39,8 @@ function renderStatus(st: Status): void {
   $('app').hidden = !ready;
   if (!ready) return;
   $('footer').textContent = `Sesión: ${st.email} · Dispositivo: ${st.device} · v${st.version}`;
-  $('fg').textContent = st.platformError
+  if (st.platform === 'android') $('fg').textContent = '';
+  else $('fg').textContent = st.platformError
     ? `No puedo ver qué app está en primer plano (${st.platformError}). Las apps de escritorio no se están contando.`
     : st.foreground ? `App en primer plano ahora: ${st.foreground}` : '';
   if (st.extension) {
@@ -57,10 +61,10 @@ function renderStatus(st: Status): void {
     box.append(el('div', { className: 'card' }, [
       el('div', { className: 'row' }, [
         el('strong', { textContent: l.name }),
-        el('span', { textContent: left <= 0 ? 'Agotado' : `Quedan ${fmtDuration(left)}` }),
+        el('span', { textContent: st.state && inFocus(l, st.state) ? `En foco hasta las ${fmtClock(st.state.focus!.ends_at)}` : left <= 0 ? 'Agotado' : `Quedan ${fmtDuration(left)}` }),
       ]),
       bar,
-      el('div', { className: 'muted', textContent: `Límite: ${fmtDuration(l.daily_seconds)} al día` }),
+      el('div', { className: 'muted', textContent: `Límite: ${fmtDuration(l.daily_seconds)} al día` + (l.suggested_daily_seconds ? ' · hay una sugerencia para bajarlo en «Límites»' : '') }),
     ]));
   }
 }
@@ -94,6 +98,12 @@ const limitsUI = initLimitsUI<Status>({
 // ------------------------------------------------------------------ permisos (solo Android)
 
 function renderPermissions(a: NonNullable<Status['android']>): void {
+  const update = document.getElementById('update');
+  if (update) {
+    update.hidden = !a.update;
+    if (a.update) $('updateText').textContent = `Hay una versión nueva: ${a.update.version}.`;
+    if (a.updateMessage) $('updateMsg').textContent = a.updateMessage;
+  }
   const rows: [string, boolean, string][] = [
     ['permAccessibility', a.accessibility, 'accessibility'],
     ['permNotifications', a.notifications, 'notifications'],
@@ -109,6 +119,15 @@ function renderPermissions(a: NonNullable<Status['android']>): void {
       + (a.youtubeIds.length ? ` Pistas vistas en YouTube: ${a.youtubeIds.join(', ')}` : '');
   }
 }
+document.getElementById('updateBtn')?.addEventListener('click', async () => {
+  const msg = $('updateMsg');
+  msg.textContent = 'Descargando… Cuando Android pregunte, confirma la instalación.';
+  try {
+    await send({ type: 'installUpdate' });
+  } catch (e) {
+    msg.textContent = e instanceof Error ? e.message : String(e);
+  }
+});
 for (const b of document.querySelectorAll<HTMLButtonElement>('button[data-settings]')) {
   b.addEventListener('click', () => void send({ type: 'openSettings', which: b.dataset.settings }));
 }
@@ -228,6 +247,16 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('#buckets button'))
   });
 }
 $('statsAll').addEventListener('click', () => { filter = null; void loadStats(); });
+document.getElementById('exportCsv')?.addEventListener('click', async () => {
+  const msg = $('exportMsg');
+  msg.textContent = 'Preparando…';
+  try {
+    const res = await send<{ saved: boolean; path?: string }>({ type: 'exportCsv' });
+    msg.textContent = res.saved ? `Guardado${res.path ? ' en ' + res.path : ''}.` : '';
+  } catch (e) {
+    msg.textContent = e instanceof Error ? e.message : String(e);
+  }
+});
 window.addEventListener('resize', () => { if (!$('tab-stats').hidden) void loadStats(); });
 
 // ------------------------------------------------------------------ arranque

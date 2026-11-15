@@ -69,7 +69,7 @@ export class Engine {
   private async ensureRealtime(): Promise<void> {
     if (this.channel || !(await this.hasSession())) return;
     const ch = this.d.sb.channel('cambios');
-    for (const table of ['limit_usage', 'limits', 'limit_targets']) {
+    for (const table of ['limit_usage', 'limits', 'limit_targets', 'extra_grants', 'focus_sessions']) {
       ch.on('postgres_changes' as never, { event: '*', schema: 'public', table } as never, () => {
         if (Date.now() - this.lastFlushAt > OWN_ECHO_MS) this.refreshWanted = true;
       });
