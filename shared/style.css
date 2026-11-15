@@ -22,3 +22,4 @@ button:disabled { opacity: .5; cursor: default; }
 button.chip { padding: 4px 10px; border-radius: 999px; font-size: 13px; margin: 3px 0; }
 nav button[aria-selected=true], #buckets button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: #062b1f; font-weight: 600; }
 .ok { font-size: 12px; color: var(--accent); }
+.pw { display: flex; gap: 6px; } .pw input { flex: 1; min-width: 0; } .pw button { white-space: nowrap; }

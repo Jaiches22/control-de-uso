@@ -28,6 +28,20 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** Botón «Ver» junto al campo de contraseña del login, para comprobar lo que se está escribiendo. */
+export function initPasswordToggle(): void {
+  const input = byId<HTMLInputElement>('password');
+  const btn = byId<HTMLButtonElement>('togglePassword');
+  if (!input || !btn) return;
+  btn.addEventListener('click', () => {
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.textContent = show ? 'Ocultar' : 'Ver';
+    btn.setAttribute('aria-pressed', String(show));
+    input.focus();
+  });
+}
+
 const isShorts = (k: Key) => k.kind === SHORTS.kind && k.value === SHORTS.value;
 const isYouTube = (d: string) => d === 'youtube.com' || d.endsWith('.youtube.com');
 

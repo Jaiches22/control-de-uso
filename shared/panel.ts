@@ -1,6 +1,6 @@
 // Panel de la app (Windows y Android). Cada plataforma pone su HTML y un objeto global `cdu` para hablar con su motor.
 import { fmtDuration, type State } from './core.ts';
-import { describeTarget, el, initLimitsUI, type AppChoice } from './limits-ui.ts';
+import { describeTarget, el, initLimitsUI, initPasswordToggle, type AppChoice } from './limits-ui.ts';
 
 interface Status {
   loggedIn: boolean; email: string | null; device: string | null; state: State | null;
@@ -231,6 +231,8 @@ $('statsAll').addEventListener('click', () => { filter = null; void loadStats();
 window.addEventListener('resize', () => { if (!$('tab-stats').hidden) void loadStats(); });
 
 // ------------------------------------------------------------------ arranque
+
+initPasswordToggle();
 
 cdu.onChange(() => void send<Status>({ type: 'status' }).then(limitsUI.render, () => undefined));
 setInterval(() => void send<Status>({ type: 'status' }).then(renderStatus, () => undefined), 2000);

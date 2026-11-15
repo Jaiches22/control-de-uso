@@ -1,4 +1,5 @@
 import { fmtDuration } from '../../shared/core.ts';
+import { initPasswordToggle } from '../../shared/limits-ui.ts';
 import { $, el, send, type Status } from './lib/ui.ts';
 
 function render(st: Status): void {
@@ -49,6 +50,7 @@ $<HTMLFormElement>('login').addEventListener('submit', async (ev) => {
   }
 });
 
+initPasswordToggle();
 $('openOptions').addEventListener('click', () => void chrome.runtime.openOptionsPage());
 
 async function load(type: 'status' | 'refresh'): Promise<void> {
