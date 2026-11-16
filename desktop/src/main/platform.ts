@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 export interface Rect { x: number; y: number; width: number; height: number }
-export interface Foreground { exe: string; rect: Rect | null }
+export interface Foreground { exe: string; rect: Rect | null; path?: string }
 export interface OpenApp { exe: string; title: string }
 export interface Platform {
   foreground(): Foreground | null;
@@ -27,9 +27,9 @@ function createWindows(): Platform {
   const CloseHandle = kernel32.func('bool __stdcall CloseHandle(void* handle)');
   void RECT;
   const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-  const names = new Map<number, string>(); // pid -> exe (caché pequeña)
+  const names = new Map<number, { exe: string; path: string }>(); // pid -> ejecutable (caché pequeña)
 
-  function exeOf(pid: number): string | null {
+  function exeOf(pid: number): { exe: string; path: string } | null {
     const cached = names.get(pid);
     if (cached) return cached;
     const handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
@@ -39,10 +39,10 @@ function createWindows(): Platform {
       const size = [buf.length];
       if (!QueryFullProcessImageNameW(handle, 0, buf, size)) return null;
       const full = String.fromCharCode(...buf.subarray(0, size[0]));
-      const exe = path.win32.basename(full).toLowerCase();
+      const found = { exe: path.win32.basename(full).toLowerCase(), path: full };
       if (names.size > 500) names.clear();
-      names.set(pid, exe);
-      return exe;
+      names.set(pid, found);
+      return found;
     } finally {
       CloseHandle(handle);
     }
@@ -55,13 +55,13 @@ function createWindows(): Platform {
       const pid = [0];
       GetWindowThreadProcessId(hwnd, pid);
       if (!pid[0]) return null;
-      const exe = exeOf(pid[0]);
-      if (!exe) return null;
+      const found = exeOf(pid[0]);
+      if (!found) return null;
       const r: { left?: number; top?: number; right?: number; bottom?: number } = {};
       const rect = GetWindowRect(hwnd, r) && r.right !== undefined
         ? { x: r.left!, y: r.top!, width: r.right! - r.left!, height: r.bottom! - r.top! }
         : null;
-      return { exe, rect };
+      return { exe: found.exe, rect, path: found.path };
     },
     listOpenApps() {
       // tasklist /v incluye el título de la ventana principal de cada proceso.

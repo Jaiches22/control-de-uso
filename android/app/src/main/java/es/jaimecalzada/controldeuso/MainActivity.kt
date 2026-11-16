@@ -164,12 +164,19 @@ class MainActivity : Activity() {
                 r.onSuccess { ok(id, it) }.onFailure { fail(id, it) }
             }
             "stats" -> {
+                fun opt(name: String): Any = if (msg.has(name) && !msg.isNull(name)) msg.getString(name) else JSONObject.NULL
                 val args = JSONObject()
-                    .put("p_bucket", msg.getString("bucket"))
-                    .put("p_count", msg.getInt("count"))
-                    .put("p_kind", if (msg.has("kind") && !msg.isNull("kind")) msg.getString("kind") else JSONObject.NULL)
-                    .put("p_value", if (msg.has("value") && !msg.isNull("value")) msg.getString("value") else JSONObject.NULL)
-                Engine.background({ JSONObject(Engine.api.rpc("get_stats", args)) }) { r ->
+                    .put("p_from", opt("from"))
+                    .put("p_to", opt("to"))
+                    .put("p_bucket", opt("bucket"))
+                    .put("p_device", opt("device"))
+                    .put("p_kind", opt("kind"))
+                    .put("p_value", opt("value"))
+                Engine.background({
+                    val stats = JSONObject(Engine.api.rpc("get_stats_range", args))
+                    stats.put("meta", appMeta(stats.optJSONArray("top") ?: JSONArray()))
+                    stats
+                }) { r ->
                     r.onSuccess { ok(id, it) }.onFailure { fail(id, it) }
                 }
             }
@@ -204,6 +211,60 @@ class MainActivity : Activity() {
 
     private fun config(id: Int, name: String, args: JSONObject) {
         Engine.call(name, args) { error -> if (error == null) ok(id, status()) else fail(id, error) }
+    }
+
+    /**
+     * Nombres e iconos de lo que sale en las estadísticas. Los que falten y sean apps instaladas en este
+     * móvil se sacan de Android y se suben, para que también se vean en el ordenador. Se llama fuera del hilo principal.
+     */
+    private fun appMeta(top: JSONArray): JSONObject {
+        val keys = JSONArray()
+        var shorts = false
+        for (i in 0 until top.length()) {
+            val t = top.getJSONObject(i)
+            if (t.getString("kind") == "special") shorts = true
+            else keys.put(JSONObject().put("kind", t.getString("kind")).put("value", t.getString("value")))
+        }
+        if (shorts) keys.put(JSONObject().put("kind", "domain").put("value", "youtube.com"))
+        if (keys.length() == 0) return JSONObject()
+        val meta = try {
+            JSONObject(Engine.api.rpc("get_app_meta", JSONObject().put("p_keys", keys)))
+        } catch (e: Exception) {
+            JSONObject()
+        }
+        val missing = JSONArray()
+        for (i in 0 until keys.length()) {
+            val k = keys.getJSONObject(i)
+            if (k.getString("kind") != "android_package") continue
+            val pkg = k.getString("value")
+            val known = meta.optJSONObject("android_package:$pkg")
+            if (known != null && !known.isNull("icon") && !known.isNull("label")) continue
+            val info = try { packageManager.getApplicationInfo(pkg, 0) } catch (e: Exception) { continue }
+            val label = packageManager.getApplicationLabel(info).toString().take(80)
+            val icon = iconDataUrl(packageManager.getApplicationIcon(info))
+            val item = JSONObject().put("label", label).put("icon", icon ?: JSONObject.NULL)
+            meta.put("android_package:$pkg", item)
+            missing.put(JSONObject(item.toString()).put("kind", "android_package").put("value", pkg))
+        }
+        if (missing.length() > 0) {
+            try { Engine.api.rpc("put_app_meta", JSONObject().put("p_items", missing)) } catch (e: Exception) { /* se reintenta otro día */ }
+        }
+        return meta
+    }
+
+    /** Icono de una app como PNG de 48×48 en base64, o null si ocupa demasiado. */
+    private fun iconDataUrl(drawable: android.graphics.drawable.Drawable): String? = try {
+        val size = 48
+        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        drawable.setBounds(0, 0, size, size)
+        drawable.draw(canvas)
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        val b64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+        if (b64.length > 38_000) null else "data:image/png;base64,$b64"
+    } catch (e: Exception) {
+        null
     }
 
     /** Apps con icono en el cajón de aplicaciones, ordenadas por nombre. */

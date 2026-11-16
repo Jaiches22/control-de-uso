@@ -2,92 +2,120 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
 <title>Control de uso</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  body { padding: 20px 24px 40px; }
-  main { max-width: 760px; margin: 0 auto; }
-  nav { display: flex; gap: 6px; margin: 0 0 16px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
-  nav button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: #062b1f; font-weight: 600; }
-  .chart { width: 100%; height: 240px; display: block; }
-  .chart text { fill: var(--muted); font-size: 11px; }
-  .chart .grid { stroke: var(--line); stroke-width: 1; }
-  .chart .bar { fill: var(--accent); }
-  .chart .hit { fill: transparent; }
-  .chart .hit:hover + .bar, .chart g:hover .bar { fill: #6ee7b7; }
-  .toprow { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
-  .toprow:hover { background: var(--card); }
-  .toprow .bar { grid-column: 1 / -1; margin: 0; }
-  #tip { position: fixed; pointer-events: none; background: #000; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; display: none; z-index: 5; }
+  html, body { height: 100%; }
+  .shell { display: grid; grid-template-columns: 210px 1fr; height: 100%; }
+  .side { background: #0b1220; border-right: 1px solid var(--line); padding: 18px 12px; display: flex; flex-direction: column; gap: 14px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; padding: 0 6px; }
+  .brand img { width: 26px; height: 26px; }
+  nav { display: none; flex-direction: column; gap: 4px; }
+  body.ready nav { display: flex; }
+  nav button { text-align: left; border-color: transparent; background: transparent; padding: 10px 12px; }
+  nav button:hover { background: var(--card); }
+  nav button[aria-selected=true] { background: rgba(52, 211, 153, .14); color: var(--accent); border-color: transparent; font-weight: 600; }
+  .side .foot { margin-top: auto; font-size: 12px; color: var(--muted); padding: 0 6px; overflow-wrap: anywhere; }
+  main { overflow-y: auto; padding: 22px 28px 48px; }
+  main > * { max-width: 980px; }
+  #login { max-width: 420px; }
   ol { padding-left: 20px; } ol li { margin: 6px 0; }
   code { background: var(--card); padding: 2px 6px; border-radius: 6px; user-select: all; }
+  section > h2:first-child { margin-top: 0; }
 </style>
 </head>
 <body>
-<main>
-  <h1>Control de uso</h1>
-
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><img src="icon.png" alt=""> Control de uso</div>
+    <nav>
+      <button data-tab="today" aria-selected="true">Panel</button>
+      <button data-tab="limits">Límites</button>
+      <button data-tab="focus">Modo foco</button>
+      <button data-tab="ext">Extensión de Brave</button>
+    </nav>
+    <div class="foot" id="footer"></div>
+  </aside>
+  <main>
   <form id="login" class="card" hidden>
     <p class="muted">Inicia sesión con el mismo usuario que en la extensión.</p>
     <label for="email">Email</label><input id="email" type="email" required autocomplete="username">
     <label for="password">Contraseña</label><div class="pw"><input id="password" type="password" required autocomplete="current-password"><button type="button" id="togglePassword" aria-pressed="false">Ver</button></div>
-    <label for="device">Nombre de este dispositivo (el mismo que pusiste en la extensión)</label><input id="device" type="text" required maxlength="40" placeholder="PC o Portátil">
+    <label for="device">Nombre de este dispositivo</label><input id="device" type="text" required maxlength="40" placeholder="PC o Portátil">
     <p class="error" id="loginError"></p>
     <button class="primary" type="submit" id="loginBtn">Entrar</button>
   </form>
 
   <div id="app" hidden>
-    <nav>
-      <button data-tab="today" aria-selected="true">Hoy</button>
-      <button data-tab="limits">Límites</button>
-      <button data-tab="stats">Estadísticas</button>
-      <button data-tab="ext">Extensión de Brave</button>
-    </nav>
-
     <section id="tab-today">
-      <div id="today"></div>
+      <h2 id="todayTitle" hidden>Límites de hoy</h2>
+      <div id="today" class="today-grid"></div>
+
+      <h2>Tu tiempo</h2>
+      <div class="filters">
+        <span id="ranges">
+          <button data-days="1">Hoy</button>
+          <button data-days="7" aria-pressed="true">7 días</button>
+          <button data-days="30">30 días</button>
+          <button data-days="90">3 meses</button>
+          <button data-days="365">12 meses</button>
+          <button data-days="0">Fechas…</button>
+        </span>
+        <span id="customRange" hidden>
+          <input type="date" id="from" aria-label="Desde"> – <input type="date" id="to" aria-label="Hasta">
+        </span>
+        <span class="sep"></span>
+        <select id="bucketSel" aria-label="Agrupar por">
+          <option value="auto">Agrupar: automático</option>
+          <option value="day">Por días</option>
+          <option value="week">Por semanas</option>
+          <option value="month">Por meses</option>
+          <option value="year">Por años</option>
+        </select>
+      </div>
+      <div class="filters" id="deviceFilter"></div>
+      <p class="error" id="statsError"></p>
+      <div class="tiles" id="tiles"></div>
+
+      <div class="card">
+        <div class="row"><strong id="chartTitle">Evolución del tiempo de uso</strong><button id="statsAll" hidden>Ver el total</button></div>
+        <div class="legend" id="legend"></div>
+        <svg class="chart" id="chart" role="img"></svg>
+      </div>
+
+      <div class="card">
+        <strong>En qué se va el tiempo</strong>
+        <p class="muted">Elige una fila para ver su evolución.</p>
+        <div id="top"></div>
+      </div>
+      <p><button id="exportCsv">Exportar mis datos a CSV</button> <span class="muted" id="exportMsg"></span></p>
       <p class="muted" id="fg"></p>
     </section>
 
     <section id="tab-limits" hidden>
-      <p class="muted">Bajar un límite o añadir webs y apps se aplica al momento. Subirlo, borrarlo o quitar webs y apps entra en vigor a las 00:00. Un límite recién creado se puede corregir durante 10 minutos.</p>
+      <p class="muted">Bajar un límite o añadir webs y apps se aplica al momento. Subirlo, borrarlo o quitar webs y apps entra en vigor a las 00:00, y para subirlo o borrarlo hay que escribir una frase. Un límite recién creado se puede corregir durante 10 minutos.</p>
       <p class="error" id="error"></p>
       <div id="list"></div>
-      <h2>Modo foco</h2>
-      <div id="focus" class="card focusbox"></div>
       <h2 id="formTitle">Nuevo límite</h2>
       <form id="form" class="card">
         <label for="name">Nombre</label><input id="name" type="text" required maxlength="60" placeholder="Instagram">
-        <label for="minutes">Minutos al día</label><input id="minutes" type="number" required min="0" max="1440" step="1" placeholder="12">
-        <label for="domains">Webs (dominios separados por comas)</label><input id="domains" type="text" placeholder="instagram.com">
-        <label class="check"><input id="shorts" type="checkbox"> YouTube Shorts (solo Shorts; no pongas youtube.com arriba)</label>
+        <label for="minutes">Minutos al día</label><input id="minutes" type="number" required min="0" max="1440" step="1" placeholder="12" inputmode="numeric">
         <label for="apps">Apps de Windows (separadas por comas)</label><input id="apps" type="text" placeholder="spotify.exe">
         <p><button type="button" id="pickApp">Elegir de las apps abiertas</button></p>
         <div id="openApps"></div>
+        <label for="domains">Webs (dominios separados por comas)</label><input id="domains" type="text" placeholder="instagram.com" autocapitalize="none">
+        <label class="check"><input id="shorts" type="checkbox"> YouTube Shorts (solo Shorts; no pongas youtube.com arriba)</label>
         <label class="check"><input id="extra" type="checkbox"> Permitir +5 minutos extra desde la pantalla de bloqueo (una vez al día en total)</label>
         <p class="muted" id="otherTargets"></p>
         <div class="row"><button class="primary" type="submit" id="save">Guardar</button><button type="button" id="cancelEdit" hidden>Cancelar edición</button></div>
       </form>
     </section>
 
-    <section id="tab-stats" hidden>
-      <div class="row">
-        <div id="buckets">
-          <button data-bucket="day" aria-selected="true">Días</button>
-          <button data-bucket="week">Semanas</button>
-          <button data-bucket="month">Meses</button>
-          <button data-bucket="year">Años</button>
-        </div>
-        <button id="statsAll" hidden>Ver el total</button>
-      </div>
-      <p><button id="exportCsv">Exportar mis datos a CSV</button> <span class="muted" id="exportMsg"></span></p>
-      <h2 id="statsTitle">Tiempo total</h2>
-      <p class="error" id="statsError"></p>
-      <svg class="chart" id="chart" role="img"></svg>
-      <h2>En qué se va el tiempo</h2>
-      <p class="muted">Pulsa una fila para ver su evolución.</p>
-      <div id="top"></div>
+    <section id="tab-focus" hidden>
+      <p class="muted">Bloquea durante un rato los límites que elijas, en todos tus dispositivos a la vez.</p>
+      <p class="error" id="focusError"></p>
+      <div id="focus" class="card focusbox"></div>
     </section>
 
     <section id="tab-ext" hidden>
@@ -101,10 +129,9 @@
       </ol>
       <p><button id="openExt">Abrir la carpeta</button> <span class="muted" id="extVersion"></span></p>
     </section>
-
-    <p class="muted" id="footer"></p>
   </div>
-</main>
+  </main>
+</div>
 <div id="tip"></div>
 <script src="panel.js"></script>
 </body>

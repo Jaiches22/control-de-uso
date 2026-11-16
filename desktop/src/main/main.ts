@@ -22,6 +22,7 @@ let panel: BrowserWindow | null = null;
 let overlay: BrowserWindow | null = null;
 let overlayKey = '';
 let engine: Engine;
+let loadDataPaths: () => Record<string, string> = () => ({});
 const platform = createPlatform();
 
 // ------------------------------------------------------------------ carpeta de la extensión
@@ -148,6 +149,34 @@ async function status(sb: SupabaseClient) {
   };
 }
 
+/**
+ * Nombres e iconos de las apps de una lista. Los que falten y sean programas de este ordenador se
+ * sacan del propio ejecutable y se suben, para que también se vean en el móvil y en el otro ordenador.
+ */
+async function appMeta(sb: SupabaseClient, top: { kind: string; value: string }[]): Promise<Record<string, { label?: string | null; icon?: string | null }>> {
+  const keys = top.filter((t) => t.kind !== 'special').map((t) => ({ kind: t.kind, value: t.value }));
+  if (top.some((t) => t.kind === 'special')) keys.push({ kind: 'domain', value: 'youtube.com' });
+  if (keys.length === 0) return {};
+  const { data } = await sb.rpc('get_app_meta', { p_keys: keys });
+  const meta: Record<string, { label?: string | null; icon?: string | null }> = data ?? {};
+  const missing: { kind: string; value: string; label: string; icon: string }[] = [];
+  for (const k of keys) {
+    const file = k.kind === 'win_process' ? loadDataPaths()[k.value] : undefined;
+    if (!file || meta[`${k.kind}:${k.value}`]?.icon) continue;
+    try {
+      const icon = (await app.getFileIcon(file, { size: 'normal' })).toDataURL();
+      if (!icon.startsWith('data:image/png;base64,') || icon.length > 40000) continue;
+      const label = path.win32.basename(file).replace(/\.exe$/i, '');
+      missing.push({ ...k, label, icon });
+      meta[`${k.kind}:${k.value}`] = { label, icon };
+    } catch {
+      // Sin icono: el panel pondrá una inicial.
+    }
+  }
+  if (missing.length) void sb.rpc('put_app_meta', { p_items: missing }).then(() => undefined, () => undefined);
+  return meta;
+}
+
 function registerIpc(sb: SupabaseClient): void {
   const handle = async (msg: Record<string, any>) => {
     switch (msg.type) {
@@ -184,11 +213,12 @@ function registerIpc(sb: SupabaseClient): void {
       }
       case 'listApps': return (await platform.listOpenApps()).map((a) => ({ id: a.exe, label: a.exe }));
       case 'stats': {
-        const { data, error } = await sb.rpc('get_stats', {
-          p_bucket: msg.bucket, p_count: msg.count, p_kind: msg.kind ?? null, p_value: msg.value ?? null,
+        const { data, error } = await sb.rpc('get_stats_range', {
+          p_from: msg.from ?? null, p_to: msg.to ?? null, p_bucket: msg.bucket ?? null, p_device: msg.device ?? null,
+          p_kind: msg.kind ?? null, p_value: msg.value ?? null,
         });
         if (error) throw new Error(error.message);
-        return data;
+        return { ...data, meta: await appMeta(sb, data.top ?? []) };
       }
       case 'openExtensionDir': mkdirSync(extensionDir(), { recursive: true }); await shell.openPath(extensionDir()); return null;
       default: throw new Error('Mensaje desconocido');
@@ -238,6 +268,7 @@ void app.whenReady().then(() => {
     auth: { storageKey: 'sb-auth', storage: authStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
   });
   const data = loadData();
+  loadDataPaths = () => data.exePaths;
   engine = new Engine({
     sb, platform, data, save: saveData,
     ownExe: path.basename(process.execPath).toLowerCase(),

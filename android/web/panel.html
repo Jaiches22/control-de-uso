@@ -7,30 +7,30 @@
 <link rel="stylesheet" href="style.css">
 <style>
   body { padding: 16px 14px 48px; font-size: 16px; }
-  nav { display: flex; gap: 6px; margin: 0 0 14px; overflow-x: auto; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  nav { display: none; gap: 6px; margin: 0 0 14px; overflow-x: auto; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  body.ready nav { display: flex; }
   nav button { white-space: nowrap; }
   button { padding: 10px 14px; }
   input[type=text], input[type=email], input[type=password], input[type=number] { padding: 11px 12px; font-size: 16px; }
-  .chart { width: 100%; height: 220px; display: block; }
-  .chart text { fill: var(--muted); font-size: 11px; }
-  .chart .grid { stroke: var(--line); stroke-width: 1; }
-  .chart .bar { fill: var(--accent); }
-  .chart .hit { fill: transparent; }
-  .toprow { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 8px 4px; }
-  .toprow .bar { grid-column: 1 / -1; margin: 0; }
-  .toprow span:first-child { overflow-wrap: anywhere; }
-  #tip { position: fixed; pointer-events: none; background: #000; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; display: none; z-index: 5; }
-  #buckets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chart { height: 210px; }
+  .tiles { grid-template-columns: 1fr 1fr; }
+  .tile .v { font-size: 20px; }
   #openApps { max-height: 260px; overflow-y: auto; }
   .perm { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; }
   .perm p { grid-column: 1 / -1; margin: 0; }
   #shortsDiag { overflow-wrap: anywhere; }
+  section > h2:first-child { margin-top: 0; }
 </style>
 </head>
 <body>
 <main>
   <h1>Control de uso</h1>
-
+  <nav>
+    <button data-tab="today" aria-selected="true">Panel</button>
+    <button data-tab="limits">Límites</button>
+    <button data-tab="focus">Modo foco</button>
+    <button data-tab="perms">Permisos</button>
+  </nav>
   <form id="login" class="card" hidden>
     <p class="muted">Inicia sesión con el mismo usuario que en el ordenador.</p>
     <label for="email">Email</label><input id="email" type="email" required autocomplete="username">
@@ -46,24 +46,56 @@
       <button id="updateBtn" class="primary">Actualizar</button>
       <p class="muted" id="updateMsg"></p>
     </div>
-    <nav>
-      <button data-tab="today" aria-selected="true">Hoy</button>
-      <button data-tab="limits">Límites</button>
-      <button data-tab="stats">Estadísticas</button>
-      <button data-tab="perms">Permisos</button>
-    </nav>
 
     <section id="tab-today">
-      <div id="today"></div>
+      <h2 id="todayTitle" hidden>Límites de hoy</h2>
+      <div id="today" class="today-grid"></div>
+
+      <h2>Tu tiempo</h2>
+      <div class="filters">
+        <span id="ranges">
+          <button data-days="1">Hoy</button>
+          <button data-days="7" aria-pressed="true">7 días</button>
+          <button data-days="30">30 días</button>
+          <button data-days="90">3 meses</button>
+          <button data-days="365">12 meses</button>
+          <button data-days="0">Fechas…</button>
+        </span>
+        <span id="customRange" hidden>
+          <input type="date" id="from" aria-label="Desde"> – <input type="date" id="to" aria-label="Hasta">
+        </span>
+        <span class="sep"></span>
+        <select id="bucketSel" aria-label="Agrupar por">
+          <option value="auto">Agrupar: automático</option>
+          <option value="day">Por días</option>
+          <option value="week">Por semanas</option>
+          <option value="month">Por meses</option>
+          <option value="year">Por años</option>
+        </select>
+      </div>
+      <div class="filters" id="deviceFilter"></div>
+      <p class="error" id="statsError"></p>
+      <div class="tiles" id="tiles"></div>
+
+      <div class="card">
+        <div class="row"><strong id="chartTitle">Evolución del tiempo de uso</strong><button id="statsAll" hidden>Ver el total</button></div>
+        <div class="legend" id="legend"></div>
+        <svg class="chart" id="chart" role="img"></svg>
+      </div>
+
+      <div class="card">
+        <strong>En qué se va el tiempo</strong>
+        <p class="muted">Elige una fila para ver su evolución.</p>
+        <div id="top"></div>
+      </div>
+      <p><button id="exportCsv">Exportar mis datos a CSV</button> <span class="muted" id="exportMsg"></span></p>
       <p class="muted" id="fg"></p>
     </section>
 
     <section id="tab-limits" hidden>
-      <p class="muted">Bajar un límite o añadir webs y apps se aplica al momento. Subirlo, borrarlo o quitar webs y apps entra en vigor a las 00:00. Un límite recién creado se puede corregir durante 10 minutos.</p>
+      <p class="muted">Bajar un límite o añadir webs y apps se aplica al momento. Subirlo, borrarlo o quitar webs y apps entra en vigor a las 00:00, y para subirlo o borrarlo hay que escribir una frase. Un límite recién creado se puede corregir durante 10 minutos.</p>
       <p class="error" id="error"></p>
       <div id="list"></div>
-      <h2>Modo foco</h2>
-      <div id="focus" class="card focusbox"></div>
       <h2 id="formTitle">Nuevo límite</h2>
       <form id="form" class="card">
         <label for="name">Nombre</label><input id="name" type="text" required maxlength="60" placeholder="Instagram">
@@ -79,21 +111,10 @@
       </form>
     </section>
 
-    <section id="tab-stats" hidden>
-      <div id="buckets">
-        <button data-bucket="day" aria-selected="true">Días</button>
-        <button data-bucket="week">Semanas</button>
-        <button data-bucket="month">Meses</button>
-        <button data-bucket="year">Años</button>
-        <button id="statsAll" hidden>Ver el total</button>
-      </div>
-      <p><button id="exportCsv">Exportar mis datos a CSV</button> <span class="muted" id="exportMsg"></span></p>
-      <h2 id="statsTitle">Tiempo total</h2>
-      <p class="error" id="statsError"></p>
-      <svg class="chart" id="chart" role="img"></svg>
-      <h2>En qué se va el tiempo</h2>
-      <p class="muted">Toca una fila para ver su evolución.</p>
-      <div id="top"></div>
+    <section id="tab-focus" hidden>
+      <p class="muted">Bloquea durante un rato los límites que elijas, en todos tus dispositivos a la vez.</p>
+      <p class="error" id="focusError"></p>
+      <div id="focus" class="card focusbox"></div>
     </section>
 
     <section id="tab-perms" hidden>
@@ -104,7 +125,7 @@
       </div>
       <div class="card perm">
         <strong>Notificaciones</strong><span id="permNotifications" class="tag">Falta</span>
-        <p class="muted">Para la notificación fija con el tiempo restante y el aviso de 1 minuto.</p>
+        <p class="muted">Para el aviso de 1 minuto y el de versión nueva.</p>
         <p><button data-settings="notifications">Permitir notificaciones</button></p>
       </div>
       <div class="card perm">

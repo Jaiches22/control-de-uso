@@ -19,6 +19,10 @@ El navegador del móvil no se cubre: no se usa.
 ### 2.1 Registro y estadísticas
 - Se registra el tiempo en webs (por dominio), apps de escritorio (por proceso) y apps Android (por paquete), tengan límite o no.
 - Gráficas de evolución por día, semana, mes y año dentro de la app de Windows y de la de Android. Sin correos.
+- **Panel** (Windows y Android, misma pantalla): menú lateral (en el móvil, arriba), límites de hoy, cifras del periodo (tiempo total, media diaria, comparación con el periodo anterior y lo más usado), gráfica de barras apiladas por dispositivo y lista de lo más usado con su logo y el reparto por dispositivo.
+- Filtros: periodo (hoy, 7 días, 30 días, 3 meses, 12 meses o fechas a mano), agrupación (automática, días, semanas, meses o años) y dispositivo.
+- Cada dispositivo tiene un color fijo en las gráficas (azul, naranja y verde, paleta validada para daltonismo), asignado por orden alfabético de nombre para que no cambie al filtrar.
+- **Logos y nombres:** la extensión sube el logo de cada web sacándolo de la caché de favicons del propio navegador (no se pide nada a las webs ni a terceros); la app de Windows, el icono del ejecutable; la de Android, el nombre e icono de la app. Se guardan en la tabla `app_meta` y se ven en todos los dispositivos.
 
 ### 2.2 Límites diarios compartidos
 - Un límite corresponde a **un servicio** (no a una categoría o grupo de servicios) y tiene un único contador diario compartido entre los tres dispositivos.
@@ -40,6 +44,10 @@ El navegador del móvil no se cubre: no se usa.
 - **Regla anti-trampa:** bajar un límite, crear uno nuevo o añadirle identificadores se aplica al momento. Subir un límite, borrarlo o quitarle un identificador entra en vigor a las 00:00 (Europe/Madrid) siguientes. Los cambios pendientes se pueden cancelar.
 - **Margen de corrección:** durante los 10 minutos siguientes a crear un límite se puede editar o borrar libremente (para arreglar erratas).
 - La regla se aplica en el servidor: las tablas solo admiten lectura directa y toda escritura pasa por funciones.
+
+### 2.4 bis Fricción para aflojar
+- Subir los minutos de un límite o borrarlo exige teclear entera una frase larga (sin poder pegarla) que recuerda por qué se puso el límite. Además, el cambio sigue sin aplicarse hasta las 00:00.
+- No hace falta durante los 10 minutos siguientes a crear el límite (margen para corregir erratas).
 
 ### 2.5 Sin pausa
 No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
@@ -76,7 +84,7 @@ No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
 - Autenticación con email y contraseña. Un único usuario; el registro de usuarios nuevos queda desactivado una vez creado.
 - RLS en todas las tablas: cada fila pertenece a un usuario y solo él puede leerla o escribirla.
 - Las tablas nuevas no se exponen automáticamente a la API; los permisos se conceden de forma explícita en las migraciones.
-- Contador atómico mediante función RPC (`add_usage`), que suma segundos y devuelve el estado completo. Resto de funciones: `get_state`, `upsert_limit`, `delete_limit`, `cancel_pending` `get_stats` (estadísticas agregadas por día, semana, mes o año), `grant_extra`, `start_focus`, `snooze_suggestion` y `export_usage_csv`.
+- Contador atómico mediante función RPC (`add_usage`), que suma segundos y devuelve el estado completo. Resto de funciones: `get_state`, `upsert_limit`, `delete_limit`, `cancel_pending` `get_stats` (estadísticas agregadas por día, semana, mes o año), `grant_extra`, `start_focus`, `snooze_suggestion`, `export_usage_csv`, `get_stats_range` (estadísticas por rango de fechas y dispositivo), `get_app_meta` y `put_app_meta` (nombres y logos).
 - Tablas: `limits`, `limit_targets` (identificadores de cada límite), `usage` (todo el uso, para estadísticas) y `limit_usage` (contador diario de cada límite).
 - Realtime para propagar al momento bloqueos, cambios de límites, modo foco y uso del +5.
 - Migraciones SQL versionadas en `supabase/migrations/`.
@@ -146,6 +154,7 @@ Cada fase termina con algo instalable y con instrucciones paso a paso.
 | 2026-11-14 | Un límite no puede llevar youtube.com y Shorts a la vez: youtube.com ya incluye Shorts. |
 | 2026-11-14 | Android sin Jetpack Compose ni UsageStatsManager: panel compartido en un WebView y todo el conteo desde el servicio de accesibilidad. Menos permisos que conceder y la misma pantalla en móvil y ordenador. |
 | 2026-11-15 | Fuera la notificación permanente de Android. Activar el +5 en un límite existente espera a las 00:00. |
+| 2026-11-16 | Panel nuevo inspirado en StayFree (diseño propio, no una copia), con colores por dispositivo, filtros de fechas y dispositivo, y logos. Frase obligatoria para subir o borrar un límite. |
 | 2026-11-14 | Android sincroniza por consulta periódica en lugar de Realtime, para no mantener una conexión abierta gastando batería. |
 | 2026-11-14 | Margen de 10 minutos para corregir un límite recién creado. Un vídeo con sonido sigue contando aunque no se toque teclado ni ratón. |
 | 2026-11-14 | Proyecto de Supabase en París (eu-west-3), con RLS automático y sin exposición automática de tablas. |

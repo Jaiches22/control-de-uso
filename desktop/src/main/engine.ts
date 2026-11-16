@@ -112,6 +112,7 @@ export class Engine {
     let fg: Foreground | null = null;
     try { fg = this.d.platform.foreground(); } catch (e) { console.warn('[control-de-uso] primer plano', e); }
     this.lastForeground = fg?.exe ?? null;
+    if (fg?.path && data.exePaths[fg.exe] !== fg.path) data.exePaths[fg.exe] = fg.path;
     const idle = this.d.idleSeconds() >= IDLE_SECONDS;
     let keys: Key[] | null =
       fg && !idle && !NOT_COUNTED.has(fg.exe) && fg.exe !== this.d.ownExe ? [{ kind: 'win_process', value: fg.exe }] : null;

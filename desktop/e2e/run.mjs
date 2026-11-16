@@ -14,6 +14,7 @@ const PORT = 8788, DEBUG_PORT = 9333;
 const calls = [];
 let limits = [];
 let seq = 0;
+const statsCalls = [];
 let focus = null;
 let extraGrants = 0;
 const matches = (t, k) => t.kind === k.kind && (t.value === k.value || (t.kind === 'domain' && k.value.endsWith('.' + t.value)));
@@ -47,11 +48,24 @@ const rpc = {
     return state();
   },
   export_usage_csv: () => 'dia,tipo,nombre,dispositivo,segundos\n2026-11-14,win_process,"juego.exe","PC",8',
-  get_stats: ({ p_bucket }) => ({
-    bucket: p_bucket, from: '2026-11-01', to: '2026-11-14',
-    series: Array.from({ length: 14 }, (_, i) => ({ start: `2026-11-${String(i + 1).padStart(2, '0')}`, seconds: i * 700 })),
-    top: [{ kind: 'win_process', value: 'juego.exe', seconds: 5000 }, { kind: 'special', value: 'youtube_shorts', seconds: 900 }],
-  }),
+  get_app_meta: () => ({ 'android_package:com.instagram.android': { label: 'Instagram', icon: null } }),
+  put_app_meta: () => null,
+  get_stats_range: (args) => {
+    statsCalls.push(args);
+    const one = args.p_device;
+    return {
+      bucket: args.p_bucket ?? 'day', from: args.p_from, to: args.p_to, days: 14, today: '2026-11-14', total: 50000, previous_total: 62500,
+      devices: ['PC', 'Móvil', 'Portátil'],
+      series: Array.from({ length: 14 }, (_, i) => ({ start: `2026-11-${String(i + 1).padStart(2, '0')}`,
+        devices: i === 0 ? {} : one ? { [one]: i * 300 } : { PC: i * 400, 'Móvil': i * 250, 'Portátil': i % 3 ? 0 : 600 } })),
+      top: [
+        { kind: 'win_process', value: 'juego.exe', seconds: 5000, devices: { PC: 4000, 'Portátil': 1000 } },
+        { kind: 'android_package', value: 'com.instagram.android', seconds: 2400, devices: { 'Móvil': 2400 } },
+        { kind: 'domain', value: 'prueba.invalid', seconds: 1200, devices: { PC: 1200 } },
+        { kind: 'special', value: 'youtube_shorts', seconds: 900, devices: { 'Móvil': 900 } },
+      ],
+    };
+  },
 };
 const jwt = (p) => ['{"alg":"HS256","typ":"JWT"}', JSON.stringify(p), 'sig'].map((s) => Buffer.from(s).toString('base64url')).join('.');
 const server = http.createServer((req, res) => {
@@ -220,7 +234,7 @@ try {
   // 7b. Modo foco desde el panel: bloquea una app a la que le queda tiempo.
   const up = await panel.evaluate(() => cdu.send({ type: 'upsertLimit', id: null, name: 'Notas', dailySeconds: 3600, allowExtra: false, targets: [{ kind: 'win_process', value: 'notas.exe' }] }));
   assert.ok(up.ok, JSON.stringify(up));
-  await panel.click('nav button[data-tab=limits]');
+  await panel.click('nav button[data-tab=focus]');
   await panel.waitForFunction(() => [...document.querySelectorAll('#focus label')].some((l) => l.textContent.includes('Notas')));
   await panel.evaluate(() => [...document.querySelectorAll('#focus label')].find((l) => l.textContent.includes('Notas')).querySelector('input').click());
   await panel.click('#focusStart');
@@ -231,20 +245,51 @@ try {
   console.log('ok  modo foco');
 
   // 7c. Exportar a CSV.
-  await panel.click('nav button[data-tab=stats]');
+  await panel.click('nav button[data-tab=today]');
   await panel.click('#exportCsv');
   await panel.waitForFunction(() => document.querySelector('#exportMsg').textContent.includes('Guardado'));
   assert.ok(readFileSync(path.join(tmp, 'export.csv'), 'utf8').includes('juego.exe'));
   console.log('ok  exportar CSV');
 
-  // 8. Estadísticas: gráfica y lista.
-  await panel.click('nav button[data-tab=stats]');
-  await panel.waitForFunction(() => document.querySelectorAll('#chart path.bar').length === 13);
-  await panel.waitForFunction(() => document.querySelector('#top').textContent.includes('YouTube Shorts'));
-  await panel.click('#buckets button[data-bucket=month]');
-  await panel.waitForFunction(() => true);
-  await sleep(500);
-  await shot(panel, 'stats.png');
+  // 7d. Subir un límite ya asentado exige teclear la frase (y no deja pegarla).
+  await panel.click('nav button[data-tab=limits]');
+  await panel.evaluate(() => [...document.querySelectorAll('#list .card')].find((c) => c.textContent.includes('Notas')).querySelector('button').click());
+  await panel.$eval('#minutes', (e) => (e.value = ''));
+  await panel.type('#minutes', '90');
+  const before = calls.filter((c) => c.name === 'upsert_limit').length;
+  await panel.click('#save');
+  await panel.waitForSelector('#frictionInput');
+  assert.equal(await panel.$eval('#frictionOk', (b) => b.disabled), true);
+  await panel.type('#frictionInput', 'puse este limite para proteger mi tiempo', { delay: 1 });
+  assert.equal(await panel.$eval('#frictionOk', (b) => b.disabled), true);
+  const phrase = await panel.$eval('.quote', (q) => q.textContent);
+  await panel.$eval('#frictionInput', (e) => (e.value = ''));
+  await panel.type('#frictionInput', phrase, { delay: 1 });
+  assert.equal(await panel.$eval('#frictionOk', (b) => b.disabled), false);
+  assert.equal(calls.filter((c) => c.name === 'upsert_limit').length, before);
+  await panel.click('#frictionOk');
+  await sleep(800);
+  assert.equal(calls.filter((c) => c.name === 'upsert_limit').length, before + 1);
+  console.log('ok  frase obligatoria para subir un límite');
+
+  // 8. Panel: cifras, gráfica apilada por dispositivo, filtros y logos.
+  await panel.click('nav button[data-tab=today]');
+  await panel.waitForFunction(() => document.querySelectorAll('#tiles .tile').length === 4 && document.querySelectorAll('#chart path.bar').length > 20);
+  assert.ok((await panel.$eval('#tiles', (t) => t.textContent)).includes('−20 %'));
+  assert.equal(await panel.$$eval('#legend span', (n) => n.length), 3);
+  await panel.waitForFunction(() => document.querySelector('#top').textContent.includes('Instagram'));
+  await sleep(1500); // da tiempo a que falle el favicon de prueba y salga la inicial
+  await shot(panel, 'panel.png');
+  await panel.evaluate(() => [...document.querySelectorAll('#deviceFilter button')].find((b) => b.textContent.includes('Móvil')).click());
+  await panel.waitForFunction(() => document.querySelectorAll('#legend span').length === 0);
+  assert.equal(statsCalls.at(-1).p_device, 'Móvil');
+  await panel.click('#ranges button[data-days="30"]');
+  await sleep(600);
+  const last = statsCalls.at(-1);
+  assert.equal((new Date(last.p_to) - new Date(last.p_from)) / 86400000, 29);
+  await panel.select('#bucketSel', 'week');
+  await sleep(600);
+  assert.equal(statsCalls.at(-1).p_bucket, 'week');
   await panel.click('nav button[data-tab=limits]');
   await shot(panel, 'limits.png');
   console.log('ok  estadísticas', tmp);

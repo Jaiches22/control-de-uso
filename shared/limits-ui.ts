@@ -28,6 +28,53 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** Frase que hay que teclear entera para aflojar un límite. Larga a propósito: da tiempo a pensárselo. */
+export const FRICTION_TEXT =
+  'Puse este límite para proteger mi tiempo. Cambiarlo ahora es justo lo que quería evitar cuando lo creé. '
+  + 'Aun así decido hacerlo, y acepto que mañana tendré más tiempo para perder.';
+
+const squash = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Pide teclear la frase (sin pegar). Devuelve true solo si se escribe entera y se confirma. */
+export function confirmByTyping(title: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const area = el('textarea', { rows: 5, placeholder: 'Escribe aquí la frase completa' });
+    area.id = 'frictionInput';
+    const progress = el('p', { className: 'muted' });
+    const ok = el('button', { type: 'button', className: 'primary', textContent: 'Confirmar el cambio', disabled: true });
+    ok.id = 'frictionOk';
+    const cancel = el('button', { type: 'button', textContent: 'Mejor lo dejo como está' });
+    cancel.id = 'frictionCancel';
+    const quote = el('p', { className: 'quote', textContent: FRICTION_TEXT });
+    const modal = el('div', { className: 'modal' }, [
+      el('div', { className: 'card' }, [
+        el('h2', { textContent: title }),
+        el('p', { textContent: 'Para seguir, escribe esta frase tal cual. No se puede pegar.' }),
+        quote, area, progress,
+        el('p', { className: 'muted', textContent: 'El cambio seguirá sin aplicarse hasta las 00:00.' }),
+        el('div', { className: 'row' }, [cancel, ok]),
+      ]),
+    ]);
+    const target = squash(FRICTION_TEXT);
+    const update = () => {
+      const typed = squash(area.value);
+      ok.disabled = typed !== target;
+      progress.textContent = typed === target ? 'Frase completa.'
+        : target.startsWith(typed) ? `Llevas ${typed.length} de ${target.length} caracteres.`
+        : 'No coincide con la frase: revisa lo último que has escrito.';
+    };
+    for (const ev of ['paste', 'drop']) area.addEventListener(ev, (e) => e.preventDefault());
+    for (const ev of ['copy', 'cut']) quote.addEventListener(ev, (e) => e.preventDefault());
+    area.addEventListener('input', update);
+    const close = (result: boolean) => { modal.remove(); resolve(result); };
+    cancel.addEventListener('click', () => close(false));
+    ok.addEventListener('click', () => close(true));
+    update();
+    document.body.append(modal);
+    area.focus();
+  });
+}
+
 /** Botón «Ver» junto al campo de contraseña del login, para comprobar lo que se está escribiendo. */
 export function initPasswordToggle(): void {
   const input = byId<HTMLInputElement>('password');
@@ -58,10 +105,10 @@ export function normalizePackage(input: string): string | null {
   return /^[A-Za-z][\w]*(\.[A-Za-z][\w]*)+$/.test(s) ? s : null;
 }
 
-export function describeTarget(t: Key): string {
+export function describeTarget(t: Key & { label?: string | null }): string {
   if (isShorts(t)) return 'YouTube Shorts';
-  if (t.kind === 'android_package') return `app Android ${t.value}`;
-  if (t.kind === 'win_process') return `app Windows ${t.value}`;
+  if (t.kind === 'android_package') return `app Android ${t.label || t.value}`;
+  if (t.kind === 'win_process') return `app Windows ${t.label || t.value}`;
   return t.value;
 }
 
@@ -89,7 +136,11 @@ export function initLimitsUI<S extends LimitsStatus>(opts: LimitsOptions<S>): { 
       const edit = el('button', { textContent: 'Editar', type: 'button' });
       edit.addEventListener('click', () => startEdit(l));
       const del = el('button', { textContent: 'Borrar', type: 'button' });
-      del.addEventListener('click', () => void act({ type: 'deleteLimit', id: l.id }));
+      del.addEventListener('click', async () => {
+        // Borrar afloja el límite: fuera del margen inicial hay que escribir la frase.
+        if (!l.in_grace && !l.pending_delete && !(await confirmByTyping(`Borrar «${l.name}»`))) return;
+        void act({ type: 'deleteLimit', id: l.id });
+      });
       const buttons: HTMLElement[] = [edit, del];
       if (hasPending) {
         const cancel = el('button', { textContent: 'Cancelar cambios pendientes', type: 'button' });
@@ -158,9 +209,14 @@ export function initLimitsUI<S extends LimitsStatus>(opts: LimitsOptions<S>): { 
     start.addEventListener('click', () => {
       const ids = [...focusPicked].filter((id) => limits.some((l) => l.id === id));
       const mins = Number(minutes.value);
-      if (ids.length === 0) return showError('Marca al menos un límite para el modo foco.');
-      if (!Number.isInteger(mins) || mins < 1 || mins > 720) return showError('El foco dura entre 1 y 720 minutos.');
-      void act({ type: 'startFocus', ids, minutes: mins }).then((ok) => { if (ok) focusPicked.clear(); });
+      const focusError = (text: string) => { (byId('focusError') ?? need('error')).textContent = text; };
+      focusError('');
+      if (ids.length === 0) return focusError('Marca al menos un límite para el modo foco.');
+      if (!Number.isInteger(mins) || mins < 1 || mins > 720) return focusError('El foco dura entre 1 y 720 minutos.');
+      opts.send({ type: 'startFocus', ids, minutes: mins }).then(
+        (st) => { focusPicked.clear(); render(st); },
+        (e) => focusError(e instanceof Error ? e.message : String(e)),
+      );
     });
     box.append(
       el('label', { textContent: 'Minutos' }), minutes,
@@ -238,11 +294,18 @@ export function initLimitsUI<S extends LimitsStatus>(opts: LimitsOptions<S>): { 
     const minutes = Number(need<HTMLInputElement>('minutes').value);
     if (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440) return showError('Los minutos tienen que estar entre 0 y 1440.');
 
+    const seconds = Math.round(minutes * 60);
+    if (editing && !editing.in_grace && seconds > editing.daily_seconds
+        && seconds !== editing.pending_daily_seconds
+        && !(await confirmByTyping(`Subir «${editing.name}» de ${fmtDuration(editing.daily_seconds)} a ${fmtDuration(seconds)}`))) {
+      return;
+    }
+
     const ok = await act({
       type: 'upsertLimit',
       id: editing?.id ?? null,
       name: need<HTMLInputElement>('name').value.trim(),
-      dailySeconds: Math.round(minutes * 60),
+      dailySeconds: seconds,
       allowExtra: need<HTMLInputElement>('extra').checked,
       targets,
     });

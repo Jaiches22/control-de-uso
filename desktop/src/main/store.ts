@@ -8,6 +8,8 @@ export interface LocalData {
   device: string | null;
   pending: Pending;
   warned: { day: string; ids: string[] };
+  /** Dónde está cada programa visto en primer plano, para poder sacar su icono. */
+  exePaths: Record<string, string>;
 }
 
 const dir = () => app.getPath('userData');
@@ -24,9 +26,9 @@ function writeAtomic(file: string, content: string | Buffer): void {
 export function loadData(): LocalData {
   try {
     const d = JSON.parse(readFileSync(dataFile(), 'utf8')) as Partial<LocalData>;
-    return { device: d.device ?? null, pending: d.pending ?? {}, warned: d.warned ?? { day: '', ids: [] } };
+    return { device: d.device ?? null, pending: d.pending ?? {}, warned: d.warned ?? { day: '', ids: [] }, exePaths: d.exePaths ?? {} };
   } catch {
-    return { device: null, pending: {}, warned: { day: '', ids: [] } };
+    return { device: null, pending: {}, warned: { day: '', ids: [] }, exePaths: {} };
   }
 }
 

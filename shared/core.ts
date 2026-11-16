@@ -2,7 +2,8 @@
 
 export type Kind = 'domain' | 'win_process' | 'android_package' | 'special';
 export interface Key { kind: Kind; value: string }
-export interface Target extends Key { remove_on: string | null }
+/** label: nombre legible de la app (lo sube el dispositivo que la tiene instalada), si se conoce. */
+export interface Target extends Key { remove_on: string | null; label?: string | null }
 export interface Limit {
   id: string;
   name: string;
@@ -10,6 +11,8 @@ export interface Limit {
   used_seconds: number;
   remaining_seconds: number;
   allow_extra: boolean;
+  /** Recién creado (menos de 10 minutos): aún se puede corregir libremente. */
+  in_grace?: boolean;
   /** El +5 se puede pedir ahora mismo (permitido en este límite y aún no gastado hoy). */
   extra_available?: boolean;
   extra_from?: string | null;

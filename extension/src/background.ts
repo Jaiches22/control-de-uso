@@ -203,11 +203,63 @@ async function blockTabs(limit: Limit): Promise<void> {
   }
 }
 
+// ------------------------------------------------------------------ logos de las webs
+
+// El logo de cada web visitada se saca de la caché de favicons del propio navegador (sin pedir nada a
+// nadie) y se sube una vez, para que el panel de Windows y el del móvil lo enseñen junto a su nombre.
+const ICONS_DONE = 'iconsDone';
+const iconQueue = new Map<string, string>(); // dominio -> URL de una página suya
+let iconBusy = false;
+
+function queueIcon(url: string): void {
+  const keys = keysFor(url);
+  if (!keys) return;
+  iconQueue.set(keys[0].value, url);
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return `data:${blob.type || 'image/png'};base64,${btoa(bin)}`;
+}
+
+async function uploadIcons(): Promise<void> {
+  if (iconBusy || iconQueue.size === 0 || !(await hasSession())) return;
+  iconBusy = true;
+  try {
+    const done = new Set(((await chrome.storage.local.get(ICONS_DONE))[ICONS_DONE] as string[] | undefined) ?? []);
+    const items: { kind: string; value: string; icon: string }[] = [];
+    for (const [domain, pageUrl] of [...iconQueue]) {
+      iconQueue.delete(domain);
+      if (done.has(domain)) continue;
+      try {
+        const res = await fetch(chrome.runtime.getURL(`/_favicon/?pageUrl=${encodeURIComponent(pageUrl)}&size=32`));
+        const blob = await res.blob();
+        if (!res.ok || blob.type !== 'image/png' || blob.size > 28000) continue;
+        items.push({ kind: 'domain', value: domain, icon: await blobToDataUrl(blob) });
+      } catch {
+        // Sin logo para esta web: el panel pondrá su inicial.
+      }
+      if (items.length >= 10) break;
+    }
+    if (items.length === 0) return;
+    const { error } = await sb.rpc('put_app_meta', { p_items: items });
+    if (error) return;
+    for (const it of items) done.add(it.value);
+    await chrome.storage.local.set({ [ICONS_DONE]: [...done].slice(-2000) });
+  } finally {
+    iconBusy = false;
+  }
+}
+
 // ------------------------------------------------------------------ eventos
 
 chrome.tabs.onActivated.addListener(() => void tick());
-chrome.tabs.onUpdated.addListener((_id, info) => {
+chrome.tabs.onUpdated.addListener((_id, info, tab) => {
   if (info.url !== undefined || info.audible !== undefined) void tick();
+  // Cuando la página termina de cargar ya tiene su logo en la caché del navegador.
+  if (info.status === 'complete' && tab.url && !INCOGNITO) queueIcon(tab.url);
 });
 chrome.windows.onFocusChanged.addListener(() => void tick());
 chrome.idle.onStateChanged.addListener(() => void tick());
@@ -216,6 +268,7 @@ chrome.alarms.onAlarm.addListener((a) => {
   if (a.name !== 'pulso') return;
   void tick({ flush: true });
   void reloadIfUpdated();
+  void uploadIcons();
 });
 
 /**
