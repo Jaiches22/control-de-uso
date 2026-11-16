@@ -14,17 +14,18 @@
     "dist": "electron-builder --win nsis --publish never"
   },
   "dependencies": {
-    "koffi": "^2.9.0"
+    "koffi": "^2.16.4"
   },
   "devDependencies": {
-    "@supabase/supabase-js": "^2.45.0",
-    "electron": "^39.0.0",
-    "electron-builder": "^25.1.8",
-    "electron-updater": "^6.3.9",
-    "esbuild": "^0.24.0",
-    "puppeteer-core": "^24.0.0",
-    "typescript": "^5.6.0",
-    "@types/node": "^22.0.0"
+    "@electron/fuses": "^1.8.0",
+    "@supabase/supabase-js": "^2.119.0",
+    "@types/node": "^22.0.0",
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0",
+    "electron-updater": "^6.8.11",
+    "esbuild": "^0.28.2",
+    "puppeteer-core": "^25.17.0",
+    "typescript": "^5.6.0"
   },
   "build": {
     "appId": "es.jaimecalzada.controldeuso",
@@ -79,6 +80,13 @@
     "directories": {
       "output": "release"
     },
-    "npmRebuild": false
+    "npmRebuild": false,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true,
+      "enableCookieEncryption": true
+    }
   }
 }

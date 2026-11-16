@@ -3,6 +3,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, p
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { cpSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { fmtClock, fmtDuration, inFocus, type Limit, type State } from '../../../shared/core.ts';
 import { Engine } from './engine.ts';
 import { createPlatform, platformError, type Foreground } from './platform.ts';
@@ -14,7 +15,10 @@ declare const __SUPABASE_KEY__: string;
 const APP_ID = 'es.jaimecalzada.controldeuso';
 const startHidden = process.argv.includes('--hidden');
 
-if (process.env.CDU_USER_DATA) app.setPath('userData', process.env.CDU_USER_DATA);
+// Ganchos para las pruebas automáticas. En la app instalada no hacen nada, para que nadie pueda
+// cambiar su comportamiento con variables de entorno.
+const TEST = !app.isPackaged;
+if (TEST && process.env.CDU_USER_DATA) app.setPath('userData', process.env.CDU_USER_DATA);
 if (!app.requestSingleInstanceLock()) app.quit();
 
 let tray: Tray | null = null;
@@ -23,7 +27,7 @@ let overlay: BrowserWindow | null = null;
 let overlayKey = '';
 let engine: Engine;
 let loadDataPaths: () => Record<string, string> = () => ({});
-const platform = createPlatform();
+const platform = createPlatform(TEST);
 
 // ------------------------------------------------------------------ carpeta de la extensión
 
@@ -36,7 +40,7 @@ function versionIn(dir: string): string | null {
 }
 /** Copia la extensión que trae esta versión de la app a su carpeta fija. La extensión se recarga sola al verla. */
 function syncExtension(): void {
-  const src = process.env.CDU_EXTENSION_SRC ?? path.join(process.resourcesPath, 'extension');
+  const src = (TEST && process.env.CDU_EXTENSION_SRC) || path.join(process.resourcesPath, 'extension');
   const dst = extensionDir();
   const bundled = versionIn(src);
   if (!bundled || bundled === versionIn(dst)) return;
@@ -69,7 +73,7 @@ function showPanel(): void {
   panel = new BrowserWindow({
     width: 920, height: 760, minWidth: 640, minHeight: 520, title: 'Control de uso', backgroundColor: '#111827',
     icon: path.join(__dirname, 'icon.png'), autoHideMenuBar: true,
-    webPreferences: { preload, contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   void panel.loadFile(path.join(__dirname, 'panel.html'));
   panel.on('closed', () => { panel = null; });
@@ -80,7 +84,7 @@ function ensureOverlay(): BrowserWindow {
   overlay = new BrowserWindow({
     show: false, frame: false, resizable: false, movable: false, minimizable: false, maximizable: false,
     skipTaskbar: true, focusable: false, alwaysOnTop: true, backgroundColor: '#111827', title: 'Tiempo agotado',
-    webPreferences: { preload, contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   void overlay.loadFile(path.join(__dirname, 'overlay.html'));
   return overlay;
@@ -204,7 +208,7 @@ function registerIpc(sb: SupabaseClient): void {
       case 'exportCsv': {
         const { data, error } = await sb.rpc('export_usage_csv');
         if (error) throw new Error(error.message);
-        const chosen = process.env.CDU_EXPORT_PATH
+        const chosen = (TEST ? process.env.CDU_EXPORT_PATH : undefined)
           ?? (await dialog.showSaveDialog({ title: 'Exportar mis datos', defaultPath: 'control-de-uso.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] })).filePath;
         if (!chosen) return { saved: false };
         // El BOM hace que Excel abra bien los acentos.
@@ -224,7 +228,11 @@ function registerIpc(sb: SupabaseClient): void {
       default: throw new Error('Mensaje desconocido');
     }
   };
-  ipcMain.handle('cdu', async (_e, msg) => {
+  // Solo responden las dos páginas propias de la app (nunca una web, aunque alguna llegara a cargarse).
+  const trusted = new Set(['panel.html', 'overlay.html'].map((f) => pathToFileURL(path.join(__dirname, f)).href));
+  ipcMain.handle('cdu', async (event, msg) => {
+    const from = event.senderFrame?.url.split(/[?#]/)[0] ?? '';
+    if (!trusted.has(from) || !msg || typeof msg !== 'object') return { ok: false, error: 'Origen no permitido' };
     try {
       return { ok: true, result: await handle(msg) };
     } catch (e) {
@@ -258,6 +266,14 @@ function setupUpdates(): void {
 }
 
 // ------------------------------------------------------------------ arranque
+
+// Las ventanas de la app nunca navegan fuera de sus propias páginas ni abren ventanas nuevas.
+app.on('web-contents-created', (_e, contents) => {
+  contents.on('will-navigate', (ev) => ev.preventDefault());
+  contents.on('will-redirect', (ev) => ev.preventDefault());
+  contents.on('will-attach-webview', (ev) => ev.preventDefault());
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+});
 
 app.on('second-instance', () => showPanel());
 app.on('window-all-closed', () => { /* la app sigue viva en la bandeja */ });

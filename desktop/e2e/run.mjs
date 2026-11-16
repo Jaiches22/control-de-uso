@@ -146,6 +146,14 @@ try {
   await panel.waitForSelector('#app:not([hidden])');
   console.log('ok  login');
 
+  // 1b. Seguridad: el panel no puede navegar a una web ni abrir ventanas nuevas.
+  const pagesBefore = (await browser.pages()).length;
+  await panel.evaluate(() => { window.open('https://example.com'); location.href = 'https://example.com'; }).catch(() => undefined);
+  await sleep(1500);
+  assert.ok(panel.url().endsWith('panel.html'), panel.url());
+  assert.equal((await browser.pages()).length, pagesBefore);
+  console.log('ok  el panel no sale de sus páginas');
+
   // 2. La extensión se copió a su carpeta fija.
   const extDir = path.join(localAppData, 'ControlDeUso', 'extension');
   assert.equal(JSON.parse(readFileSync(path.join(extDir, 'version.json'), 'utf8')).version, '9.9.9');

@@ -126,6 +126,15 @@ No existe botón de pausa ni forma de desactivar el bloqueo desde la interfaz.
 - El repositorio es público: **nunca se suben claves ni contraseñas**. La contraseña de la base de datos solo la tiene el dueño y no se usa en ningún sitio del proyecto.
 - La clave anon acaba dentro de los instaladores públicos. Es una clave pensada para ser pública: la privacidad de los datos la garantizan RLS y el registro cerrado.
 
+## 6 bis. Seguridad
+
+- **Base de datos:** RLS en todas las tablas; las tablas solo admiten lectura del propio usuario y toda escritura pasa por funciones `security definer` con `search_path` vacío que comprueban `auth.uid()`. Las funciones internas no son ejecutables desde la API. Registro de usuarios cerrado. Revisado en producción el 2026-11-16.
+- **Extensión:** solo atiende mensajes de sus propias páginas; no tiene scripts en webs ni acepta mensajes externos. La página de bloqueo solo enlaza a direcciones `http(s)`.
+- **App de Windows:** ventanas con `contextIsolation`, `sandbox` y CSP; no pueden navegar fuera de sus páginas ni abrir ventanas; el IPC solo responde a las dos páginas propias. Fusibles de Electron: sin `RunAsNode`, sin `NODE_OPTIONS`, sin `--inspect` y solo carga la app desde el `asar` (se comprueba al compilar). Los ganchos de prueba (variables `CDU_*`) no hacen nada en la app instalada. Sesión cifrada con la cuenta de Windows.
+- **App de Android:** el WebView no accede a archivos y no puede salir de las páginas del panel; el puente nativo solo responde a ellas. Sin copia de seguridad de datos. Las actualizaciones solo se instalan si están firmadas con la misma clave.
+- **Compilación:** permisos mínimos en GitHub Actions (solo el paso de publicar puede escribir) y acciones fijadas a un commit concreto. La clave de firma de Android solo existe en el secreto del repositorio y en la copia del dueño.
+- **Riesgo principal:** quien controle la cuenta de GitHub puede publicar una actualización que se instala sola en Windows. La cuenta de GitHub (y la de Supabase) deben tener verificación en dos pasos.
+
 ## 7. Limitaciones conocidas
 
 - Otros navegadores de Windows (por ejemplo, Edge) no cuentan ni bloquean webs. Se puede poner un límite a ese navegador como app de escritorio.
@@ -155,6 +164,7 @@ Cada fase termina con algo instalable y con instrucciones paso a paso.
 | 2026-11-14 | Android sin Jetpack Compose ni UsageStatsManager: panel compartido en un WebView y todo el conteo desde el servicio de accesibilidad. Menos permisos que conceder y la misma pantalla en móvil y ordenador. |
 | 2026-11-15 | Fuera la notificación permanente de Android. Activar el +5 en un límite existente espera a las 00:00. |
 | 2026-11-16 | Panel nuevo inspirado en StayFree (diseño propio, no una copia), con colores por dispositivo, filtros de fechas y dispositivo, y logos. Frase obligatoria para subir o borrar un límite. |
+| 2026-11-16 | Revisión de seguridad: Electron 45 (la 39 ya no recibía parches), fusibles, aislamiento de ventanas y WebView, permisos mínimos en CI. |
 | 2026-11-14 | Android sincroniza por consulta periódica en lugar de Realtime, para no mantener una conexión abierta gastando batería. |
 | 2026-11-14 | Margen de 10 minutos para corregir un límite recién creado. Un vídeo con sonido sigue contando aunque no se toque teclado ni ratón. |
 | 2026-11-14 | Proyecto de Supabase en París (eu-west-3), con RLS automático y sin exposición automática de tablas. |

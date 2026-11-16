@@ -398,7 +398,9 @@ async function handle(msg: Msg) {
   }
 }
 
-chrome.runtime.onMessage.addListener((msg: Msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg: Msg, sender, sendResponse) => {
+  // Solo las páginas de la propia extensión (no tiene scripts en webs ni acepta mensajes externos).
+  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(''))) return false;
   handle(msg).then(
     (result) => sendResponse({ ok: true, result }),
     (e) => sendResponse({ ok: false, error: friendly(e) }),

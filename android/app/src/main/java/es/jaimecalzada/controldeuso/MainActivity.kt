@@ -24,7 +24,10 @@ class MainActivity : Activity() {
     private var exportId = 0
     private var exportText: String? = null
 
-    private companion object { const val REQUEST_EXPORT = 7 }
+    private companion object {
+        const val REQUEST_EXPORT = 7
+        const val PANEL_ROOT = "file:///android_asset/app/"
+    }
 
     private val errors = mapOf(
         "target_in_use" to "Esa web o app ya está en otro límite.",
@@ -45,10 +48,17 @@ class MainActivity : Activity() {
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.setBackgroundColor(0xFF111827.toInt())
-        web.webViewClient = WebViewClient()
+        // Sin acceso a archivos ni a otros contenidos, y sin navegar fuera del panel: el puente con la
+        // parte nativa solo debe estar al alcance de las páginas propias de la app.
+        web.settings.allowFileAccess = false
+        web.settings.allowContentAccess = false
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean =
+                !request.url.toString().startsWith(PANEL_ROOT)
+        }
         web.addJavascriptInterface(Bridge(), "Android")
         setContentView(web)
-        web.loadUrl("file:///android_asset/app/panel.html")
+        web.loadUrl(PANEL_ROOT + "panel.html")
     }
 
     override fun onResume() {
@@ -67,6 +77,7 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun send(id: Int, json: String) {
             runOnUiThread {
+                if (web.url?.startsWith(PANEL_ROOT) != true) return@runOnUiThread
                 try {
                     handle(id, JSONObject(json))
                 } catch (e: Exception) {

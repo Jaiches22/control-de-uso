@@ -106,8 +106,8 @@ function createFake(file: string): Platform {
 /** Si las llamadas a Windows no cargan, la app sigue funcionando (panel, límites) y lo cuenta en el panel. */
 export let platformError: string | null = null;
 
-export function createPlatform(): Platform {
-  if (process.env.CDU_FAKE_FOREGROUND) return createFake(process.env.CDU_FAKE_FOREGROUND);
+export function createPlatform(allowTestHooks: boolean): Platform {
+  if (allowTestHooks && process.env.CDU_FAKE_FOREGROUND) return createFake(process.env.CDU_FAKE_FOREGROUND);
   if (process.platform === 'win32') {
     try {
       return createWindows();
