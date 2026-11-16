@@ -55,7 +55,10 @@ function syncExtension(): void {
 
 const preload = path.join(__dirname, 'preload.js');
 
+let checkUpdatesNow: () => void = () => undefined;
+
 function showPanel(): void {
+  checkUpdatesNow();
   if (panel && !panel.isDestroyed()) {
     if (panel.isMinimized()) panel.restore();
     panel.show();
@@ -213,9 +216,15 @@ function setupUpdates(): void {
     engine.flushToDisk();
     autoUpdater.quitAndInstall(true, true);
   });
-  const check = () => void autoUpdater.checkForUpdates().catch(() => undefined);
+  let lastCheck = 0;
+  const check = () => {
+    lastCheck = Date.now();
+    void autoUpdater.checkForUpdates().catch(() => undefined);
+  };
   setTimeout(check, 15_000);
-  setInterval(check, 4 * 60 * 60 * 1000);
+  setInterval(check, 60 * 60 * 1000);
+  // Abrir el panel también busca actualización (como mucho cada 10 minutos).
+  checkUpdatesNow = () => { if (Date.now() - lastCheck > 10 * 60 * 1000) check(); };
 }
 
 // ------------------------------------------------------------------ arranque
