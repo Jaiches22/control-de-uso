@@ -26,6 +26,7 @@ let panel: BrowserWindow | null = null;
 let overlay: BrowserWindow | null = null;
 let overlayKey = '';
 let engine: Engine;
+const notices = new Map<string, Notification>();
 let loadDataPaths: () => Record<string, string> = () => ({});
 const platform = createPlatform(TEST);
 
@@ -289,7 +290,18 @@ void app.whenReady().then(() => {
     sb, platform, data, save: saveData,
     ownExe: path.basename(process.execPath).toLowerCase(),
     idleSeconds: () => powerMonitor.getSystemIdleTime(),
-    notify: (message) => new Notification({ title: 'Control de uso', body: message }).show(),
+    notify: (limitId, message) => {
+      notices.get(limitId)?.close();
+      const n = new Notification({ title: 'Control de uso', body: message });
+      notices.set(limitId, n);
+      n.show();
+    },
+    clearNotice: (limitId) => {
+      const n = notices.get(limitId);
+      if (!n) return;
+      notices.delete(limitId);
+      n.close();
+    },
     onBlock: setBlock,
     onChange: () => { if (panel && !panel.isDestroyed()) panel.webContents.send('changed'); },
   });

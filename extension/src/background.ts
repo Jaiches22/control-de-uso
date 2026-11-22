@@ -174,10 +174,19 @@ async function tickInner(opts: TickOptions): Promise<void> {
       nextWake = Math.min(nextWake, left > 60 && !warned.ids.includes(limit.id) ? left - 60 : left);
     }
     if (exhausted) {
+      chrome.notifications.clear(`aviso-${exhausted.id}-${today}`);
       await blockTabs(exhausted);
       keys = null;
       // Avisar ya al servidor para que el resto de dispositivos bloqueen también.
       if (Object.keys(pending).length > 0) setTimeout(() => void tick({ flush: true }), 0);
+    }
+  }
+
+  // 3b. El aviso de «queda 1 minuto» sobra en cuanto ese límite se agota (aquí o en otro dispositivo).
+  if (state) {
+    for (const id of warned.ids) {
+      const limit = state.limits.find((l) => l.id === id);
+      if (!limit || effectiveRemaining(limit, state, pending, today) <= 0) chrome.notifications.clear(`aviso-${id}-${today}`);
     }
   }
 

@@ -24,7 +24,9 @@ object Engine {
     interface Host {
         /** focusUntil > 0 cuando el bloqueo viene del modo foco y no de haber agotado el tiempo. */
         fun block(limit: Limit, shortsOnly: Boolean, focusUntil: Long)
-        fun warn(message: String)
+        fun warn(limitId: String, message: String)
+        /** Retira el aviso de «queda 1 minuto» de ese límite. */
+        fun clearWarning(limitId: String)
     }
 
     private class Cur(val keys: List<Key>, var since: Long)
@@ -60,6 +62,7 @@ object Engine {
     private var ticks = 0
     private var warnedDay = ""
     private val warnedIds = HashSet<String>()
+    private val clearedIds = HashSet<String>()
     private var lastPkg: String? = null
 
     val device: String? get() = prefs.getString("device", null)
@@ -138,7 +141,7 @@ object Engine {
         if (dev == null || !api.loggedIn) return
         val now = System.currentTimeMillis()
         val today = madridDay(now)
-        if (warnedDay != today) { warnedDay = today; warnedIds.clear() }
+        if (warnedDay != today) { warnedDay = today; warnedIds.clear(); clearedIds.clear() }
 
         val fgKeys: List<Key>? =
             if (pkg == null || pkg == ownPackage) null
@@ -166,7 +169,7 @@ object Engine {
                 val left = effectiveRemaining(limit, st, pending, today)
                 if (left <= 0) { if (blocked == null) blocked = limit; continue }
                 if (left <= 60 && warnedIds.add(limit.id)) {
-                    host?.warn("Te queda ${fmtDuration(left)} de ${limit.name} por hoy.")
+                    host?.warn(limit.id, "Te queda ${fmtDuration(left)} de ${limit.name} por hoy.")
                 }
                 if (tightest == null || left < tightest!!.second) tightest = limit to left
             }
@@ -178,6 +181,18 @@ object Engine {
                 // Si el límite solo coincide por Shorts, basta con salir de Shorts; si no, se sale de la app.
                 val shortsOnly = !blocked.matches(listOf(Key("android_package", pkg ?: "")))
                 host?.block(blocked, shortsOnly, if (st.inFocus(blocked, now)) st.focusEndsAt else 0L)
+            }
+        }
+
+        // 2b. El aviso de «queda 1 minuto» sobra en cuanto ese límite se agota (aquí o en otro dispositivo).
+        if (st != null) {
+            for (id in warnedIds) {
+                if (id in clearedIds) continue
+                val limit = st.limits.firstOrNull { it.id == id }
+                if (limit == null || effectiveRemaining(limit, st, pending, today) <= 0) {
+                    clearedIds.add(id)
+                    host?.clearWarning(id)
+                }
             }
         }
 

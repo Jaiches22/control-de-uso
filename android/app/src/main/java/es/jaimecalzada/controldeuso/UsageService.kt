@@ -211,7 +211,14 @@ class UsageService : AccessibilityService(), Engine.Host {
         }
     }
 
-    override fun warn(message: String) = notifyUser(2, message)
+    override fun warn(limitId: String, message: String) = notifyUser(warningId(limitId), message)
+
+    override fun clearWarning(limitId: String) {
+        try { getSystemService(NotificationManager::class.java).cancel(warningId(limitId)) } catch (e: Exception) { /* nada que quitar */ }
+    }
+
+    /** Un aviso por límite, para poder quitar cada uno cuando se agota. */
+    private fun warningId(limitId: String): Int = 1000 + (limitId.hashCode() and 0xffff)
 
     /** Notificación normal (no permanente). Si no hay permiso de notificaciones, no pasa nada. */
     fun notifyUser(id: Int, message: String) {

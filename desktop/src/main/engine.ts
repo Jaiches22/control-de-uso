@@ -28,7 +28,9 @@ export interface EngineDeps {
   save: (d: LocalData) => void;
   ownExe: string;
   idleSeconds: () => number;
-  notify: (message: string) => void;
+  /** Aviso de «queda 1 minuto» de un límite; clearNotice lo retira cuando ya no tiene sentido. */
+  notify: (limitId: string, message: string) => void;
+  clearNotice: (limitId: string) => void;
   /** limit = null significa "quita el aviso de bloqueo". */
   onBlock: (limit: Limit | null, state: State | null, fg: Foreground | null) => void;
   onChange: () => void;
@@ -136,11 +138,18 @@ export class Engine {
         if (left <= 0) { blocked = blocked ?? limit; continue; }
         if (left <= 60 && !data.warned.ids.includes(limit.id)) {
           data.warned.ids.push(limit.id);
-          this.d.notify(`Te queda ${fmtDuration(left)} de ${limit.name} por hoy.`);
+          this.d.notify(limit.id, `Te queda ${fmtDuration(left)} de ${limit.name} por hoy.`);
         }
       }
     }
     if (blocked) keys = null;
+    // El aviso de «queda 1 minuto» se retira en cuanto ese límite se agota (aquí o en otro dispositivo).
+    if (this.state) {
+      for (const id of data.warned.ids) {
+        const limit = this.state.limits.find((l) => l.id === id);
+        if (!limit || effectiveRemaining(limit, this.state, data.pending, today) <= 0) this.d.clearNotice(id);
+      }
+    }
     this.d.onBlock(blocked, this.state, fg);
 
     // 3. Abrir el intervalo nuevo.
